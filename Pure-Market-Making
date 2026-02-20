@@ -1,0 +1,3602 @@
+# ═══════════════════════════════════════════════════════
+# 📓 CELL 1: Setup
+# ═══════════════════════════════════════════════════════
+
+import nest_asyncio
+nest_asyncio.apply()
+
+import asyncio
+import inspect
+import pandas as pd
+import numpy as np
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+from hummingbot.data_feed.candles_feed.candles_factory import CandlesFactory
+from hummingbot.data_feed.candles_feed.data_types import CandlesConfig
+
+print("✅ Imports done!")
+
+
+# ═══════════════════════════════════════════════════════
+# 📓 CELL 2: Debug - API Structure Check කරන්න
+# මුලින් මේක run කරලා actual API එක බලන්න
+# ═══════════════════════════════════════════════════════
+
+config = CandlesConfig(
+    connector="binance",
+    trading_pair="BTC-USDT",
+    interval="1m",
+    max_records=1000
+)
+
+candle_feed = CandlesFactory.get_candle(config)
+
+# ---- Check what type candle_feed is ----
+print(f"📋 Object Type:    {type(candle_feed)}")
+print(f"📋 Object:         {candle_feed}")
+print()
+
+# ---- List all methods and attributes ----
+print("📋 Available Methods & Attributes:")
+print("=" * 60)
+
+for attr in sorted(dir(candle_feed)):
+    if not attr.startswith('_'):
+        obj = getattr(candle_feed, attr, None)
+        attr_type = type(obj).__name__
+        is_async = inspect.iscoroutinefunction(obj)
+        is_callable = callable(obj)
+        
+        marker = ""
+        if is_async:
+            marker = "🔵 ASYNC"
+        elif is_callable:
+            marker = "🟢 SYNC"
+        else:
+            marker = "⚪ PROP"
+        
+        print(f"  {marker}  {attr:<35} ({attr_type})")
+
+print("\n" + "=" * 60)
+
+# ---- Check specific methods ----
+print("\n🔍 Key Method Checks:")
+methods_to_check = ['start', 'stop', 'fetch_candles', 
+                    'get_candles', 'candles_df', 'is_ready']
+
+for method_name in methods_to_check:
+    if hasattr(candle_feed, method_name):
+        method = getattr(candle_feed, method_name)
+        is_async = inspect.iscoroutinefunction(method)
+        is_callable = callable(method)
+        print(f"  ✅ {method_name:<25} "
+              f"async={is_async}, callable={is_callable}, "
+              f"type={type(method).__name__}")
+    else:
+        print(f"  ❌ {method_name:<25} NOT FOUND")
+
+# ═══════════════════════════════════════════════════════
+# 📓 CELL 3: Smart Fetch - Auto-detect sync/async
+# ═══════════════════════════════════════════════════════
+
+async def smart_fetch_data():
+    """
+    Automatically handles sync/async methods
+    """
+    
+    config = CandlesConfig(
+        connector="binance",
+        trading_pair="BTC-USDT",
+        interval="1m",
+        max_records=5000
+    )
+    
+    candle_feed = CandlesFactory.get_candle(config)
+    print(f"📊 Feed type: {type(candle_feed).__name__}")
+    
+    # ---- Smart Start ----
+    if hasattr(candle_feed, 'start'):
+        start_method = getattr(candle_feed, 'start')
+        
+        if inspect.iscoroutinefunction(start_method):
+            # Async method
+            print("  🔵 start() is async → awaiting...")
+            await start_method()
+        else:
+            # Sync method
+            result = start_method()
+            if inspect.isawaitable(result):
+                print("  🔵 start() returned awaitable → awaiting...")
+                await result
+            else:
+                print("  🟢 start() is sync → called directly")
+    
+    # ---- Wait for data ----
+    print("  ⏳ Waiting for data...")
+    
+    for i in range(30):
+        # Check if data is ready
+        if hasattr(candle_feed, 'is_ready'):
+            ready = candle_feed.is_ready
+            if callable(ready):
+                ready = ready()
+            if ready:
+                print(f"  ✅ Data ready after {i+1}s")
+                break
+        
+        # Alternative: check if candles_df has data
+        if hasattr(candle_feed, 'candles_df'):
+            try:
+                cdf = candle_feed.candles_df
+                if cdf is not None and len(cdf) > 0:
+                    print(f"  ✅ Data available after {i+1}s "
+                          f"({len(cdf)} candles)")
+                    break
+            except:
+                pass
+        
+        await asyncio.sleep(1)
+    
+    # ---- Get DataFrame ----
+    df = None
+    
+    if hasattr(candle_feed, 'candles_df'):
+        df = candle_feed.candles_df
+        if callable(df):
+            df = df()
+        if df is not None:
+            df = df.copy()
+    
+    # ---- Smart Stop ----
+    if hasattr(candle_feed, 'stop'):
+        stop_method = getattr(candle_feed, 'stop')
+        if inspect.iscoroutinefunction(stop_method):
+            await stop_method()
+        else:
+            result = stop_method()
+            if inspect.isawaitable(result):
+                await result
+    
+    if df is not None and len(df) > 0:
+        print(f"""
+    ✅ SUCCESS!
+    ├── Records:  {len(df):,}
+    ├── Columns:  {list(df.columns)}
+    └── Shape:    {df.shape}
+        """)
+    else:
+        print("  ❌ No data retrieved!")
+    
+    return df
+
+
+# Run
+df = asyncio.get_event_loop().run_until_complete(smart_fetch_data())
+
+if df is not None:
+    print(df.head())
+
+# ═══════════════════════════════════════════════════════
+# 📓 CELL 1: Setup (ඔබ දැනටමත් මේවා import කරලා)
+# ═══════════════════════════════════════════════════════
+
+import nest_asyncio
+nest_asyncio.apply()
+
+import asyncio
+import aiohttp
+import pandas as pd
+import numpy as np
+from datetime import datetime, timezone
+from pathlib import Path
+
+print("✅ Ready!")
+
+# ═══════════════════════════════════════════════════════
+# 📓 CELL 2: Historical Data Collector
+# ═══════════════════════════════════════════════════════
+
+async def fetch_binance_historical(
+    symbol: str = "BTCUSDT",
+    interval: str = "1m",
+    start_date: str = "2024-01-01",
+    end_date: str = "2024-07-01",
+) -> pd.DataFrame:
+    """
+    Binance API → Unlimited historical candles
+    """
+    
+    start_ts = int(datetime.strptime(
+        start_date, "%Y-%m-%d"
+    ).replace(tzinfo=timezone.utc).timestamp() * 1000)
+    
+    end_ts = int(datetime.strptime(
+        end_date, "%Y-%m-%d"
+    ).replace(tzinfo=timezone.utc).timestamp() * 1000)
+    
+    all_candles = []
+    current = start_ts
+    req = 0
+    
+    print(f"📥 Downloading: {symbol} | {interval} | "
+          f"{start_date} → {end_date}")
+    
+    async with aiohttp.ClientSession() as session:
+        while current < end_ts:
+            params = {
+                "symbol": symbol,
+                "interval": interval,
+                "startTime": current,
+                "endTime": end_ts,
+                "limit": 1000
+            }
+            
+            async with session.get(
+                "https://api.binance.com/api/v3/klines",
+                params=params
+            ) as resp:
+                
+                if resp.status == 200:
+                    data = await resp.json()
+                    if not data:
+                        break
+                    
+                    all_candles.extend(data)
+                    current = data[-1][0] + 1
+                    req += 1
+                    
+                    if req % 20 == 0:
+                        last = datetime.fromtimestamp(
+                            data[-1][0] / 1000
+                        ).strftime('%Y-%m-%d %H:%M')
+                        progress = (current - start_ts) / (end_ts - start_ts) * 100
+                        print(f"  📊 {len(all_candles):>8,} candles | "
+                              f"{progress:5.1f}% | Last: {last}")
+                    
+                    await asyncio.sleep(0.05)
+                    
+                elif resp.status == 429:
+                    print("  ⚠️ Rate limited → wait 30s")
+                    await asyncio.sleep(30)
+                else:
+                    print(f"  ❌ Error: {resp.status}")
+                    break
+    
+    if not all_candles:
+        print("❌ No data!")
+        return pd.DataFrame()
+    
+    # → DataFrame
+    df = pd.DataFrame(all_candles, columns=[
+        'timestamp', 'open', 'high', 'low', 'close', 'volume',
+        'close_time', 'quote_volume', 'trades_count',
+        'taker_buy_base', 'taker_buy_quote', 'ignore'
+    ])
+    
+    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+    
+    for col in ['open','high','low','close','volume','quote_volume',
+                'taker_buy_base','taker_buy_quote']:
+        df[col] = pd.to_numeric(df[col])
+    
+    df['trades_count'] = df['trades_count'].astype(int)
+    df = df.drop(columns=['close_time', 'ignore'])
+    df = df.drop_duplicates(subset='timestamp').sort_values('timestamp')
+    df = df.reset_index(drop=True)
+    
+    # Save
+    save_dir = Path("data/candles")
+    save_dir.mkdir(parents=True, exist_ok=True)
+    pair = symbol[:-4] + "-" + symbol[-4:]
+    path = save_dir / f"{pair}_{interval}.parquet"
+    df.to_parquet(path, index=False)
+    
+    print(f"""
+╔══════════════════════════════════════════════════╗
+║  ✅ DOWNLOAD COMPLETE                            ║
+╠══════════════════════════════════════════════════╣
+║  Candles:    {len(df):>10,}                       ║
+║  From:       {str(df['timestamp'].iloc[0])[:19]:<28}║
+║  To:         {str(df['timestamp'].iloc[-1])[:19]:<28}║
+║  Requests:   {req:>10}                            ║
+║  Saved:      {str(path):<32}║
+╚══════════════════════════════════════════════════╝
+    """)
+    
+    return df
+
+print("✅ Function ready!")
+
+# ═══════════════════════════════════════════════════════
+# 📓 CELL 3: BTC-USDT 1m Data Download (6 months)
+# ═══════════════════════════════════════════════════════
+
+df_btc = asyncio.get_event_loop().run_until_complete(
+    fetch_binance_historical(
+        symbol="BTCUSDT",
+        interval="1m",
+        start_date="2024-01-01",      # 6 months
+        end_date="2024-07-01",
+    )
+)
+
+print(f"\n📊 Shape: {df_btc.shape}")
+print(f"📊 Columns: {list(df_btc.columns)}")
+df_btc.head()
+
+# ═══════════════════════════════════════════════════════
+# 📓 CELL 4: ETH + SOL Data Download
+# ═══════════════════════════════════════════════════════
+
+# ETH
+df_eth = asyncio.get_event_loop().run_until_complete(
+    fetch_binance_historical(
+        symbol="ETHUSDT",
+        interval="1m",
+        start_date="2024-01-01",
+        end_date="2024-07-01",
+    )
+)
+
+# SOL
+df_sol = asyncio.get_event_loop().run_until_complete(
+    fetch_binance_historical(
+        symbol="SOLUSDT",
+        interval="1m",
+        start_date="2024-01-01",
+        end_date="2024-07-01",
+    )
+)
+
+# ═══════════════════════════════════════════════════════
+# 📓 CELL 5: Compare Fix 1 vs Fix 2
+# ═══════════════════════════════════════════════════════
+
+print(f"""
+╔═══════════════════════════════════════════════════════╗
+║  📊 DATA COMPARISON                                   ║
+╠═══════════════════════════════════════════════════════╣
+║                                                       ║
+║  Fix 1 (CandlesFactory):                              ║
+║  ├── BTC-USDT 1m: {1999:>10,} candles (~1.4 days)    ║
+║  └── Status: ✅ Works but LIMITED                     ║
+║                                                       ║
+║  Fix 2 (Direct API):                                  ║
+║  ├── BTC-USDT 1m: {len(df_btc):>10,} candles (~6 months) ║
+║  ├── ETH-USDT 1m: {len(df_eth):>10,} candles (~6 months) ║
+║  ├── SOL-USDT 1m: {len(df_sol):>10,} candles (~6 months) ║
+║  └── Status: ✅ COMPLETE for backtesting              ║
+║                                                       ║
+║  🎯 For Backtesting → Fix 2 data use කරන්න!         ║
+╚═══════════════════════════════════════════════════════╝
+""")
+
+# ═══════════════════════════════════════════════════════
+# 📓 CELL 6: Quick Verification
+# ═══════════════════════════════════════════════════════
+
+def quick_verify(df, name):
+    """Quick data quality check"""
+    nulls = df.isnull().sum().sum()
+    dupes = df.duplicated(subset='timestamp').sum()
+    invalid = (df['high'] < df['low']).sum()
+    days = (df['timestamp'].iloc[-1] - df['timestamp'].iloc[0]).total_seconds() / 86400
+    
+    status = "✅" if (nulls == 0 and dupes == 0 and invalid == 0) else "⚠️"
+    
+    print(f"{status} {name:<15} | "
+          f"{len(df):>10,} candles | "
+          f"{days:>6.1f} days | "
+          f"Nulls:{nulls} Dupes:{dupes} Invalid:{invalid} | "
+          f"${df['close'].iloc[0]:,.0f} → ${df['close'].iloc[-1]:,.0f}")
+
+print("📋 Data Quality Report:")
+print("=" * 100)
+quick_verify(df_btc, "BTC-USDT 1m")
+quick_verify(df_eth, "ETH-USDT 1m")
+quick_verify(df_sol, "SOL-USDT 1m")
+print("=" * 100)
+
+# ═══════════════════════════════════════════════════════
+# 📓 CELL 1: Setup + Load Saved Data
+# ═══════════════════════════════════════════════════════
+
+import nest_asyncio
+nest_asyncio.apply()
+
+import pandas as pd
+import numpy as np
+from datetime import datetime
+from pathlib import Path
+import warnings
+warnings.filterwarnings('ignore')
+
+# Load saved data
+data_dir = Path("data/candles")
+
+df_btc = pd.read_parquet(data_dir / "BTC-USDT_1m.parquet")
+df_eth = pd.read_parquet(data_dir / "ETH-USDT_1m.parquet")
+df_sol = pd.read_parquet(data_dir / "SOL-USDT_1m.parquet")
+
+print(f"✅ BTC: {len(df_btc):,} candles loaded")
+print(f"✅ ETH: {len(df_eth):,} candles loaded")
+print(f"✅ SOL: {len(df_sol):,} candles loaded")
+
+# ═══════════════════════════════════════════════════════
+# 📓 CELL 2: Feature Engineering
+# Market Making backtest සඳහා needed indicators එකතු කරන්න
+# ═══════════════════════════════════════════════════════
+
+def add_mm_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Market Making strategy සඳහා indicators එකතු කරන්න
+    
+    Added Features:
+    ├── Volatility (multiple windows)
+    ├── ATR / NATR
+    ├── Bollinger Bands
+    ├── RSI
+    ├── VWAP
+    ├── Volume Profile
+    ├── Spread Proxy
+    └── Trend Indicators
+    """
+    
+    df = df.copy()
+    
+    # ════════════════════════════════════
+    # 1. RETURNS
+    # ════════════════════════════════════
+    df['returns'] = df['close'].pct_change()
+    df['log_returns'] = np.log(df['close'] / df['close'].shift(1))
+    df['abs_returns'] = df['returns'].abs()
+    
+    # ════════════════════════════════════
+    # 2. VOLATILITY (Multiple Windows)
+    # MM spread size decide කරන්න
+    # ════════════════════════════════════
+    for window in [15, 30, 60, 120, 360, 1440]:
+        df[f'volatility_{window}'] = (
+            df['returns'].rolling(window).std()
+        )
+    
+    # Current vs Historical volatility ratio
+    df['vol_ratio'] = (
+        df['volatility_15'] / df['volatility_1440']
+    ).replace([np.inf, -np.inf], np.nan)
+    
+    # ════════════════════════════════════
+    # 3. ATR / NATR
+    # Dynamic stop loss + spread sizing
+    # ════════════════════════════════════
+    high_low = df['high'] - df['low']
+    high_close = abs(df['high'] - df['close'].shift(1))
+    low_close = abs(df['low'] - df['close'].shift(1))
+    
+    true_range = pd.concat(
+        [high_low, high_close, low_close], axis=1
+    ).max(axis=1)
+    
+    df['atr_14'] = true_range.rolling(14).mean()
+    df['atr_50'] = true_range.rolling(50).mean()
+    df['natr_14'] = df['atr_14'] / df['close']     # Normalized
+    df['natr_50'] = df['atr_50'] / df['close']
+    
+    # ════════════════════════════════════
+    # 4. BOLLINGER BANDS
+    # Mean reversion + spread boundaries
+    # ════════════════════════════════════
+    for period in [20, 50]:
+        sma = df['close'].rolling(period).mean()
+        std = df['close'].rolling(period).std()
+        
+        df[f'bb_mid_{period}'] = sma
+        df[f'bb_upper_{period}'] = sma + 2 * std
+        df[f'bb_lower_{period}'] = sma - 2 * std
+        df[f'bb_width_{period}'] = (
+            (df[f'bb_upper_{period}'] - df[f'bb_lower_{period}']) / sma
+        )
+        # BB position: 0 = lower band, 1 = upper band
+        df[f'bb_pct_{period}'] = (
+            (df['close'] - df[f'bb_lower_{period}']) / 
+            (df[f'bb_upper_{period}'] - df[f'bb_lower_{period}'])
+        ).clip(0, 1)
+    
+    # ════════════════════════════════════
+    # 5. RSI
+    # Overbought/Oversold → inventory skew
+    # ════════════════════════════════════
+    delta = df['close'].diff()
+    gain = delta.where(delta > 0, 0).rolling(14).mean()
+    loss = -delta.where(delta < 0, 0).rolling(14).mean()
+    rs = gain / loss
+    df['rsi'] = 100 - (100 / (1 + rs))
+    
+    # ════════════════════════════════════
+    # 6. EMA TREND
+    # Trend direction → inventory bias
+    # ════════════════════════════════════
+    df['ema_9'] = df['close'].ewm(span=9).mean()
+    df['ema_21'] = df['close'].ewm(span=21).mean()
+    df['ema_50'] = df['close'].ewm(span=50).mean()
+    df['ema_200'] = df['close'].ewm(span=200).mean()
+    
+    # Trend signal: +1 = uptrend, -1 = downtrend
+    df['trend'] = np.where(
+        df['ema_9'] > df['ema_21'], 1, -1
+    )
+    df['strong_trend'] = np.where(
+        df['ema_50'] > df['ema_200'], 1, -1
+    )
+    
+    # ════════════════════════════════════
+    # 7. VOLUME FEATURES
+    # ════════════════════════════════════
+    df['volume_sma_20'] = df['volume'].rolling(20).mean()
+    df['volume_sma_60'] = df['volume'].rolling(60).mean()
+    df['volume_ratio'] = (
+        df['volume'] / df['volume_sma_20']
+    ).replace([np.inf, -np.inf], np.nan)
+    
+    # VWAP (Rolling)
+    df['vwap'] = (
+        (df['quote_volume'] / df['volume'])
+        .replace([np.inf, -np.inf], np.nan)
+    )
+    
+    # Buy pressure
+    if 'taker_buy_base' in df.columns:
+        df['buy_pressure'] = (
+            df['taker_buy_base'] / df['volume']
+        ).replace([np.inf, -np.inf], np.nan)
+    elif 'taker_buy_base_volume' in df.columns:
+        df['buy_pressure'] = (
+            df['taker_buy_base_volume'] / df['volume']
+        ).replace([np.inf, -np.inf], np.nan)
+    
+    # ════════════════════════════════════
+    # 8. SPREAD PROXY
+    # Actual spread estimate from candle
+    # ════════════════════════════════════
+    df['candle_range'] = (df['high'] - df['low']) / df['close']
+    df['candle_body'] = abs(df['close'] - df['open']) / df['close']
+    df['candle_wick_ratio'] = (
+        (df['candle_range'] - df['candle_body']) / df['candle_range']
+    ).replace([np.inf, -np.inf], np.nan)
+    
+    # ════════════════════════════════════
+    # 9. MARKET REGIME DETECTION
+    # ════════════════════════════════════
+    vol_median = df['volatility_1440'].rolling(1440*7).median()
+    df['regime'] = np.where(
+        df['volatility_1440'] > vol_median * 1.5, 'high_vol',
+        np.where(
+            df['volatility_1440'] < vol_median * 0.7, 'low_vol',
+            'normal'
+        )
+    )
+    
+    # Drop NaN rows from warmup period
+    initial_nans = df.isnull().any(axis=1).sum()
+    
+    print(f"  ✅ Added {len([c for c in df.columns if c not in ['timestamp','open','high','low','close','volume']])} features")
+    print(f"  ⚠️ NaN rows (warmup): {initial_nans:,}")
+    
+    return df
+
+
+# ════════════════════════
+# Add features to all pairs
+# ════════════════════════
+
+print("🔧 Adding MM features...")
+print()
+
+print("📊 BTC-USDT:")
+df_btc = add_mm_features(df_btc)
+
+print("\n📊 ETH-USDT:")
+df_eth = add_mm_features(df_eth)
+
+print("\n📊 SOL-USDT:")
+df_sol = add_mm_features(df_sol)
+
+print(f"\n✅ Total columns: {len(df_btc.columns)}")
+print(f"📋 Feature list:")
+for i, col in enumerate(df_btc.columns):
+    print(f"  {i+1:>2}. {col}")
+
+# ═══════════════════════════════════════════════════════
+# 📓 CELL 3: MARKET MAKING BACKTEST ENGINE
+# ═══════════════════════════════════════════════════════
+
+class MarketMakingBacktester:
+    """
+    Pure Market Making Strategy Backtester
+    
+    ╔═══════════════════════════════════════╗
+    ║  FEATURES:                            ║
+    ├───────────────────────────────────────┤
+    ║  ✅ Dynamic spread (volatility)       ║
+    ║  ✅ Inventory management              ║
+    ║  ✅ Multiple order levels             ║
+    ║  ✅ Realistic fill simulation         ║
+    ║  ✅ Fee calculation                   ║
+    ║  ✅ PnL tracking (realized/unrealized)║
+    ║  ✅ Risk management                   ║
+    ║  ✅ Detailed trade log                ║
+    ╚═══════════════════════════════════════╝
+    """
+    
+    def __init__(self, config: dict):
+        self.config = config
+        self.reset()
+    
+    def reset(self):
+        """State reset"""
+        c = self.config
+        self.quote_balance = c['initial_capital']
+        self.base_balance = 0.0
+        self.trades = []
+        self.portfolio_history = []
+        self.total_fees = 0.0
+        self.total_buys = 0
+        self.total_sells = 0
+        self.filled_buy_value = 0.0
+        self.filled_sell_value = 0.0
+    
+    def run(self, df: pd.DataFrame) -> dict:
+        """
+        Main Backtest Loop
+        
+        Parameters:
+        -----------
+        df : DataFrame with OHLCV + features (from add_mm_features)
+        
+        Returns:
+        --------
+        dict with all results + DataFrames
+        """
+        
+        self.reset()
+        c = self.config
+        warmup = max(1500, c.get('warmup', 1500))
+        
+        # Skip warmup period (NaN indicators)
+        start_idx = warmup
+        
+        print(f"""
+╔══════════════════════════════════════════════════╗
+║  🤖 MARKET MAKING BACKTEST STARTING             ║
+╠══════════════════════════════════════════════════╣
+║  Capital:     ${c['initial_capital']:>12,.2f}              ║
+║  Pair:        {c.get('pair_name','N/A'):<30}   ║
+║  Period:      {str(df['timestamp'].iloc[start_idx])[:10]} → {str(df['timestamp'].iloc[-1])[:10]}  ║
+║  Candles:     {len(df) - start_idx:>12,}                   ║
+║  Spread Mode: {'Dynamic' if c['use_dynamic_spread'] else 'Fixed':<30}   ║
+╚══════════════════════════════════════════════════╝
+        """)
+        
+        # ════════════════════════════════════
+        # MAIN LOOP - candle by candle
+        # ════════════════════════════════════
+        
+        for i in range(start_idx, len(df)):
+            row = df.iloc[i]
+            
+            mid_price = row['close']
+            
+            if pd.isna(mid_price) or mid_price <= 0:
+                continue
+            
+            # ──────────────────────────────
+            # 1. CALCULATE PORTFOLIO VALUE
+            # ──────────────────────────────
+            portfolio_value = (
+                self.quote_balance + 
+                self.base_balance * mid_price
+            )
+            
+            base_value = self.base_balance * mid_price
+            base_pct = (
+                base_value / portfolio_value 
+                if portfolio_value > 0 else 0
+            )
+            
+            # ──────────────────────────────
+            # 2. CALCULATE SPREAD
+            # ──────────────────────────────
+            bid_spread, ask_spread = self._calculate_spread(
+                row, base_pct
+            )
+            
+            # ──────────────────────────────
+            # 3. PLACE ORDERS + CHECK FILLS
+            # ──────────────────────────────
+            
+            for level in range(c['order_levels']):
+                level_extra = level * c['order_level_spread']
+                
+                level_bid = mid_price * (1 - bid_spread - level_extra)
+                level_ask = mid_price * (1 + ask_spread + level_extra)
+                
+                order_amount = c['order_amount_usd'] / mid_price
+                
+                # ── BID FILL CHECK ──
+                # If low price touches our bid → we buy
+                if row['low'] <= level_bid:
+                    cost = level_bid * order_amount
+                    fee = cost * c['maker_fee']
+                    
+                    # Check balance
+                    if self.quote_balance >= (cost + fee):
+                        # Check max inventory
+                        new_base_value = (
+                            (self.base_balance + order_amount) * mid_price
+                        )
+                        new_base_pct = (
+                            new_base_value / 
+                            (portfolio_value + cost)
+                        ) if portfolio_value > 0 else 0
+                        
+                        if new_base_pct <= c['max_inventory_pct']:
+                            # Execute buy
+                            self.base_balance += order_amount
+                            self.quote_balance -= (cost + fee)
+                            self.total_fees += fee
+                            self.total_buys += 1
+                            self.filled_buy_value += cost
+                            
+                            self.trades.append({
+                                'timestamp': row['timestamp'],
+                                'side': 'buy',
+                                'price': level_bid,
+                                'amount': order_amount,
+                                'value_usd': cost,
+                                'fee': fee,
+                                'level': level,
+                                'spread': bid_spread + level_extra,
+                                'mid_price': mid_price,
+                                'inventory_pct': base_pct,
+                                'portfolio_value': portfolio_value,
+                                'volatility': row.get(
+                                    'volatility_60', np.nan
+                                ),
+                            })
+                
+                # ── ASK FILL CHECK ──
+                # If high price touches our ask → we sell
+                if row['high'] >= level_ask:
+                    fee_amount = level_ask * order_amount * c['maker_fee']
+                    
+                    # Check base balance
+                    if self.base_balance >= order_amount:
+                        # Execute sell
+                        revenue = level_ask * order_amount
+                        self.base_balance -= order_amount
+                        self.quote_balance += (revenue - fee_amount)
+                        self.total_fees += fee_amount
+                        self.total_sells += 1
+                        self.filled_sell_value += revenue
+                        
+                        self.trades.append({
+                            'timestamp': row['timestamp'],
+                            'side': 'sell',
+                            'price': level_ask,
+                            'amount': order_amount,
+                            'value_usd': revenue,
+                            'fee': fee_amount,
+                            'level': level,
+                            'spread': ask_spread + level_extra,
+                            'mid_price': mid_price,
+                            'inventory_pct': base_pct,
+                            'portfolio_value': portfolio_value,
+                            'volatility': row.get(
+                                'volatility_60', np.nan
+                            ),
+                        })
+            
+            # ──────────────────────────────
+            # 4. RECORD PORTFOLIO STATE
+            # ──────────────────────────────
+            # Record every 5 minutes (reduce data size)
+            if i % 5 == 0:
+                self.portfolio_history.append({
+                    'timestamp': row['timestamp'],
+                    'portfolio_value': portfolio_value,
+                    'quote_balance': self.quote_balance,
+                    'base_balance': self.base_balance,
+                    'base_pct': base_pct,
+                    'mid_price': mid_price,
+                    'bid_spread': bid_spread,
+                    'ask_spread': ask_spread,
+                    'volatility': row.get('volatility_60', np.nan),
+                    'regime': row.get('regime', 'unknown'),
+                })
+            
+            # ──────────────────────────────
+            # 5. PROGRESS UPDATE
+            # ──────────────────────────────
+            progress_interval = (len(df) - start_idx) // 10
+            if progress_interval > 0 and (i - start_idx) % progress_interval == 0:
+                progress = (i - start_idx) / (len(df) - start_idx) * 100
+                pnl = portfolio_value - c['initial_capital']
+                pnl_pct = pnl / c['initial_capital'] * 100
+                
+                print(
+                    f"  📊 {progress:5.1f}% | "
+                    f"PnL: ${pnl:>+10,.2f} ({pnl_pct:+.2f}%) | "
+                    f"Trades: {len(self.trades):>6,} | "
+                    f"Inv: {base_pct*100:.1f}% | "
+                    f"Date: {str(row['timestamp'])[:10]}"
+                )
+        
+        # ════════════════════════════════════
+        # CALCULATE FINAL RESULTS
+        # ════════════════════════════════════
+        return self._calculate_results()
+    
+    def _calculate_spread(self, row, base_pct: float) -> tuple:
+        """
+        Spread calculation logic
+        
+        Mode 1: Fixed spread
+        Mode 2: Dynamic (volatility-based)
+        Mode 3: Dynamic + Inventory skew
+        """
+        
+        c = self.config
+        
+        if not c['use_dynamic_spread']:
+            # ── FIXED SPREAD ──
+            return c['fixed_bid_spread'], c['fixed_ask_spread']
+        
+        # ── DYNAMIC SPREAD ──
+        
+        # Base spread = NATR × multiplier
+        natr = row.get('natr_14', 0.001)
+        if pd.isna(natr) or natr <= 0:
+            natr = 0.001
+        
+        base_spread = natr * c['volatility_multiplier']
+        
+        # Volume adjustment
+        vol_ratio = row.get('volume_ratio', 1.0)
+        if pd.notna(vol_ratio):
+            if vol_ratio > 2.0:
+                # High volume → tighter spread (more liquidity)
+                base_spread *= 0.85
+            elif vol_ratio < 0.5:
+                # Low volume → wider spread (less liquidity)
+                base_spread *= 1.25
+        
+        # BB width adjustment
+        bb_width = row.get('bb_width_20', 0.02)
+        if pd.notna(bb_width):
+            base_spread *= (0.5 + bb_width * 10)
+        
+        # Clamp spread
+        spread = max(
+            c['min_spread'],
+            min(c['max_spread'], base_spread)
+        )
+        
+        bid_spread = spread
+        ask_spread = spread
+        
+        # ── INVENTORY SKEW ──
+        if c['inventory_skew_enabled']:
+            # How far from target inventory
+            target = c['target_base_pct']
+            imbalance = base_pct - target
+            
+            # Skew factor (-1 to +1)
+            skew = np.clip(imbalance * 3, -0.8, 0.8)
+            
+            # Too much base → make it easier to sell
+            # Too little base → make it easier to buy
+            bid_spread *= (1 + skew)    # Wider bid = harder to buy
+            ask_spread *= (1 - skew)    # Tighter ask = easier to sell
+            
+            bid_spread = max(0.0005, bid_spread)
+            ask_spread = max(0.0005, ask_spread)
+        
+        # ── TREND ADJUSTMENT ──
+        if c.get('use_trend_adjustment', False):
+            trend = row.get('trend', 0)
+            rsi = row.get('rsi', 50)
+            
+            if pd.notna(rsi):
+                if rsi > 70:  # Overbought → widen ask
+                    ask_spread *= 1.2
+                elif rsi < 30:  # Oversold → widen bid
+                    bid_spread *= 1.2
+        
+        return bid_spread, ask_spread
+    
+    def _calculate_results(self) -> dict:
+        """Calculate comprehensive results"""
+        
+        c = self.config
+        
+        port_df = pd.DataFrame(self.portfolio_history)
+        trades_df = pd.DataFrame(self.trades) if self.trades else pd.DataFrame()
+        
+        if len(port_df) == 0:
+            print("❌ No portfolio history!")
+            return {'error': 'No data'}
+        
+        # ── Basic Metrics ──
+        initial = c['initial_capital']
+        final = port_df['portfolio_value'].iloc[-1]
+        total_pnl = final - initial
+        total_return = total_pnl / initial
+        
+        # ── Daily Metrics ──
+        port_df['timestamp'] = pd.to_datetime(port_df['timestamp'])
+        port_df['date'] = port_df['timestamp'].dt.date
+        
+        daily_values = port_df.groupby('date')['portfolio_value'].last()
+        daily_returns = daily_values.pct_change().dropna()
+        
+        total_days = len(daily_values)
+        daily_avg_return = daily_returns.mean()
+        
+        # ── Sharpe Ratio (annualized) ──
+        if daily_returns.std() > 0:
+            sharpe = (
+                daily_returns.mean() / daily_returns.std() * 
+                np.sqrt(365)
+            )
+        else:
+            sharpe = 0
+        
+        # ── Sortino Ratio ──
+        downside_returns = daily_returns[daily_returns < 0]
+        if len(downside_returns) > 0 and downside_returns.std() > 0:
+            sortino = (
+                daily_returns.mean() / downside_returns.std() * 
+                np.sqrt(365)
+            )
+        else:
+            sortino = 0
+        
+        # ── Max Drawdown ──
+        cummax = port_df['portfolio_value'].cummax()
+        drawdown = (
+            (port_df['portfolio_value'] - cummax) / cummax
+        )
+        max_drawdown = drawdown.min()
+        
+        # ── Win Rate ──
+        positive_days = (daily_returns > 0).sum()
+        negative_days = (daily_returns < 0).sum()
+        win_rate = (
+            positive_days / (positive_days + negative_days) 
+            if (positive_days + negative_days) > 0 else 0
+        )
+        
+        # ── Trade Metrics ──
+        if len(trades_df) > 0:
+            buy_trades = trades_df[trades_df['side'] == 'buy']
+            sell_trades = trades_df[trades_df['side'] == 'sell']
+            avg_spread = trades_df['spread'].mean()
+            
+            trades_per_day = len(trades_df) / max(total_days, 1)
+        else:
+            avg_spread = 0
+            trades_per_day = 0
+        
+        # ── Profit Factor ──
+        if len(daily_returns) > 0:
+            gross_profit = daily_returns[daily_returns > 0].sum()
+            gross_loss = abs(daily_returns[daily_returns < 0].sum())
+            profit_factor = (
+                gross_profit / gross_loss 
+                if gross_loss > 0 else float('inf')
+            )
+        else:
+            profit_factor = 0
+        
+        # ── Monthly Returns ──
+        port_df['month'] = port_df['timestamp'].dt.to_period('M')
+        monthly_values = port_df.groupby('month')['portfolio_value'].last()
+        monthly_returns = monthly_values.pct_change().dropna()
+        
+        results = {
+            # Core
+            'initial_capital': initial,
+            'final_value': final,
+            'total_pnl': total_pnl,
+            'total_return': total_return,
+            
+            # Daily
+            'total_days': total_days,
+            'daily_avg_return': daily_avg_return,
+            'best_day': daily_returns.max() if len(daily_returns) > 0 else 0,
+            'worst_day': daily_returns.min() if len(daily_returns) > 0 else 0,
+            
+            # Risk
+            'sharpe_ratio': sharpe,
+            'sortino_ratio': sortino,
+            'max_drawdown': max_drawdown,
+            'win_rate': win_rate,
+            'profit_factor': profit_factor,
+            
+            # Trades
+            'total_trades': len(trades_df),
+            'buy_trades': self.total_buys,
+            'sell_trades': self.total_sells,
+            'trades_per_day': trades_per_day,
+            'avg_spread_captured': avg_spread,
+            'total_fees': self.total_fees,
+            'fees_pct': self.total_fees / initial * 100,
+            
+            # Volume
+            'total_buy_volume': self.filled_buy_value,
+            'total_sell_volume': self.filled_sell_value,
+            
+            # Monthly
+            'monthly_returns': monthly_returns,
+            'avg_monthly_return': monthly_returns.mean() if len(monthly_returns) > 0 else 0,
+            
+            # DataFrames
+            'portfolio_df': port_df,
+            'trades_df': trades_df,
+            'daily_returns': daily_returns,
+        }
+        
+        # ── Print Results ──
+        self._print_results(results)
+        
+        return results
+    
+    def _print_results(self, r):
+        """Pretty print results"""
+        
+        print(f"""
+╔══════════════════════════════════════════════════════╗
+║  🏆 MARKET MAKING BACKTEST RESULTS                   ║
+╠══════════════════════════════════════════════════════╣
+║                                                      ║
+║  💰 PROFITABILITY                                    ║
+║  ├── Initial Capital:   ${r['initial_capital']:>12,.2f}          ║
+║  ├── Final Value:       ${r['final_value']:>12,.2f}          ║
+║  ├── Total PnL:         ${r['total_pnl']:>+12,.2f}          ║
+║  ├── Total Return:       {r['total_return']:>+12.2%}          ║
+║  ├── Daily Avg Return:   {r['daily_avg_return']:>+12.4%}          ║
+║  └── Monthly Avg Return: {r['avg_monthly_return']:>+12.4%}          ║
+║                                                      ║
+║  📊 RISK METRICS                                     ║
+║  ├── Sharpe Ratio:       {r['sharpe_ratio']:>12.2f}          ║
+║  ├── Sortino Ratio:      {r['sortino_ratio']:>12.2f}          ║
+║  ├── Max Drawdown:       {r['max_drawdown']:>12.2%}          ║
+║  ├── Win Rate (days):    {r['win_rate']:>12.1%}          ║
+║  ├── Profit Factor:      {r['profit_factor']:>12.2f}          ║
+║  ├── Best Day:           {r['best_day']:>+12.2%}          ║
+║  └── Worst Day:          {r['worst_day']:>+12.2%}          ║
+║                                                      ║
+║  🔄 TRADING ACTIVITY                                 ║
+║  ├── Total Trades:       {r['total_trades']:>12,}          ║
+║  ├── Buy Trades:         {r['buy_trades']:>12,}          ║
+║  ├── Sell Trades:        {r['sell_trades']:>12,}          ║
+║  ├── Trades/Day:         {r['trades_per_day']:>12.1f}          ║
+║  ├── Avg Spread:         {r['avg_spread_captured']:>12.4%}          ║
+║  ├── Total Fees:        ${r['total_fees']:>12,.2f}          ║
+║  └── Fees (% Capital):   {r['fees_pct']:>12.2f}%         ║
+║                                                      ║
+║  📅 Period: {r['total_days']} days                             ║
+╚══════════════════════════════════════════════════════╝
+        """)
+        
+        # Monthly breakdown
+        if len(r['monthly_returns']) > 0:
+            print("  📅 Monthly Returns:")
+            for period, ret in r['monthly_returns'].items():
+                bar_len = int(abs(ret) * 500)
+                bar = '█' * min(bar_len, 30)
+                color = '🟢' if ret >= 0 else '🔴'
+                print(f"     {color} {period}: {ret:>+8.2%} {bar}")
+
+print("✅ MarketMakingBacktester ready!")
+
+# ═══════════════════════════════════════════════════════
+# 📓 CELL 4: BACKTEST CONFIGURATION + RUN
+# ═══════════════════════════════════════════════════════
+
+# ╔═══════════════════════════════════════╗
+# ║  STRATEGY CONFIGURATION               ║
+# ╚═══════════════════════════════════════╝
+
+config_btc = {
+    'pair_name': 'BTC-USDT',
+    'initial_capital': 10000,           # $10,000
+    
+    # ── Spread Settings ──
+    'use_dynamic_spread': True,         # Volatility-based spread
+    'fixed_bid_spread': 0.004,          # 0.4% (fallback)
+    'fixed_ask_spread': 0.004,
+    'volatility_multiplier': 2.5,       # NATR × this
+    'min_spread': 0.0015,               # 0.15% minimum
+    'max_spread': 0.015,                # 1.5% maximum
+    
+    # ── Order Settings ──
+    'order_amount_usd': 100,            # $100 per order
+    'order_levels': 3,                  # 3 buy + 3 sell orders
+    'order_level_spread': 0.001,        # 0.1% between levels
+    
+    # ── Inventory Management ──
+    'inventory_skew_enabled': True,
+    'target_base_pct': 0.5,            # 50% base target
+    'max_inventory_pct': 0.7,          # Max 70% in base
+    
+    # ── Risk ──
+    'maker_fee': 0.0001,               # 0.01% maker fee (BNB discount)
+    
+    # ── Advanced ──
+    'use_trend_adjustment': True,
+    'warmup': 1500,
+}
+
+# ════════════════════════════════════
+# RUN BACKTEST - BTC
+# ════════════════════════════════════
+
+print("🚀 Running BTC-USDT Market Making Backtest...")
+print("=" * 60)
+
+bt_btc = MarketMakingBacktester(config_btc)
+results_btc = bt_btc.run(df_btc)
+
+# ═══════════════════════════════════════════════════════
+# 📓 CELL 5: BACKTEST ETH + SOL
+# ═══════════════════════════════════════════════════════
+
+# ── ETH Backtest ──
+config_eth = config_btc.copy()
+config_eth['pair_name'] = 'ETH-USDT'
+
+print("\n🚀 Running ETH-USDT Market Making Backtest...")
+print("=" * 60)
+
+bt_eth = MarketMakingBacktester(config_eth)
+results_eth = bt_eth.run(df_eth)
+
+
+# ── SOL Backtest ──
+config_sol = config_btc.copy()
+config_sol['pair_name'] = 'SOL-USDT'
+config_sol['volatility_multiplier'] = 3.0  # SOL is more volatile
+
+print("\n🚀 Running SOL-USDT Market Making Backtest...")
+print("=" * 60)
+
+bt_sol = MarketMakingBacktester(config_sol)
+results_sol = bt_sol.run(df_sol)
+
+# ═══════════════════════════════════════════════════════
+# 📓 CELL 5: BACKTEST ETH + SOL
+# ═══════════════════════════════════════════════════════
+
+# ── ETH Backtest ──
+config_eth = config_btc.copy()
+config_eth['pair_name'] = 'ETH-USDT'
+
+print("\n🚀 Running ETH-USDT Market Making Backtest...")
+print("=" * 60)
+
+bt_eth = MarketMakingBacktester(config_eth)
+results_eth = bt_eth.run(df_eth)
+
+
+# ── SOL Backtest ──
+config_sol = config_btc.copy()
+config_sol['pair_name'] = 'SOL-USDT'
+config_sol['volatility_multiplier'] = 3.0  # SOL is more volatile
+
+print("\n🚀 Running SOL-USDT Market Making Backtest...")
+print("=" * 60)
+
+bt_sol = MarketMakingBacktester(config_sol)
+results_sol = bt_sol.run(df_sol)
+
+# ═══════════════════════════════════════════════════════
+# 📓 CELL 7: VISUALIZATION
+# pip install plotly (if not installed)
+# ═══════════════════════════════════════════════════════
+
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+
+def plot_backtest_results(results: dict, pair_name: str):
+    """Comprehensive backtest visualization"""
+    
+    port_df = results['portfolio_df']
+    trades_df = results['trades_df']
+    
+    fig = make_subplots(
+        rows=4, cols=2,
+        subplot_titles=(
+            '💰 Portfolio Value ($)', 
+            '📊 Daily PnL (%)',
+            '📈 Price + Trades', 
+            '📦 Inventory Balance (%)',
+            '📉 Drawdown (%)', 
+            '🎯 Spread Used (%)',
+            '📊 Cumulative Trades',
+            '📅 Monthly Returns (%)'
+        ),
+        vertical_spacing=0.08,
+        horizontal_spacing=0.08,
+        row_heights=[0.28, 0.28, 0.22, 0.22]
+    )
+    
+    # ── 1. Portfolio Value ──
+    fig.add_trace(
+        go.Scatter(
+            x=port_df['timestamp'],
+            y=port_df['portfolio_value'],
+            name='Portfolio',
+            line=dict(color='#00ff88', width=2),
+            fill='tozeroy',
+            fillcolor='rgba(0,255,136,0.1)'
+        ), row=1, col=1
+    )
+    
+    fig.add_hline(
+        y=results['initial_capital'],
+        line_dash="dash", line_color="white",
+        opacity=0.5, row=1, col=1
+    )
+    
+    # ── 2. Daily PnL ──
+    daily_ret = results['daily_returns'] * 100
+    colors = ['#00ff88' if x >= 0 else '#ff4444' for x in daily_ret]
+    
+    fig.add_trace(
+        go.Bar(
+            x=daily_ret.index,
+            y=daily_ret.values,
+            name='Daily Return',
+            marker_color=colors,
+            opacity=0.8
+        ), row=1, col=2
+    )
+    
+    # ── 3. Price + Trades ──
+    fig.add_trace(
+        go.Scatter(
+            x=port_df['timestamp'],
+            y=port_df['mid_price'],
+            name='Price',
+            line=dict(color='#ffaa00', width=1.5)
+        ), row=2, col=1
+    )
+    
+    if len(trades_df) > 0:
+        buys = trades_df[trades_df['side'] == 'buy']
+        sells = trades_df[trades_df['side'] == 'sell']
+        
+        # Sample trades for visibility (max 500 each)
+        if len(buys) > 500:
+            buys = buys.sample(500)
+        if len(sells) > 500:
+            sells = sells.sample(500)
+        
+        fig.add_trace(
+            go.Scatter(
+                x=buys['timestamp'], y=buys['price'],
+                mode='markers', name='Buy',
+                marker=dict(
+                    color='#00ff00', size=3, 
+                    symbol='triangle-up'
+                )
+            ), row=2, col=1
+        )
+        
+        fig.add_trace(
+            go.Scatter(
+                x=sells['timestamp'], y=sells['price'],
+                mode='markers', name='Sell',
+                marker=dict(
+                    color='#ff4444', size=3, 
+                    symbol='triangle-down'
+                )
+            ), row=2, col=1
+        )
+    
+    # ── 4. Inventory ──
+    fig.add_trace(
+        go.Scatter(
+            x=port_df['timestamp'],
+            y=port_df['base_pct'] * 100,
+            name='Base %',
+            fill='tozeroy',
+            line=dict(color='#00aaff'),
+            fillcolor='rgba(0,170,255,0.2)'
+        ), row=2, col=2
+    )
+    
+    fig.add_hline(
+        y=50, line_dash="dash", line_color="yellow",
+        opacity=0.5, row=2, col=2
+    )
+    
+    # ── 5. Drawdown ──
+    cummax = port_df['portfolio_value'].cummax()
+    dd = ((port_df['portfolio_value'] - cummax) / cummax) * 100
+    
+    fig.add_trace(
+        go.Scatter(
+            x=port_df['timestamp'],
+            y=dd,
+            name='Drawdown',
+            fill='tozeroy',
+            line=dict(color='#ff4444', width=1),
+            fillcolor='rgba(255,68,68,0.3)'
+        ), row=3, col=1
+    )
+    
+    # ── 6. Spread ──
+    fig.add_trace(
+        go.Scatter(
+            x=port_df['timestamp'],
+            y=port_df['bid_spread'] * 100,
+            name='Bid Spread',
+            line=dict(color='#00ff88', width=1)
+        ), row=3, col=2
+    )
+    
+    fig.add_trace(
+        go.Scatter(
+            x=port_df['timestamp'],
+            y=port_df['ask_spread'] * 100,
+            name='Ask Spread',
+            line=dict(color='#ff6666', width=1)
+        ), row=3, col=2
+    )
+    
+    # ── 7. Cumulative Trades ──
+    if len(trades_df) > 0:
+        trades_df_sorted = trades_df.sort_values('timestamp')
+        trades_df_sorted['cum_buys'] = (
+            trades_df_sorted['side'] == 'buy'
+        ).cumsum()
+        trades_df_sorted['cum_sells'] = (
+            trades_df_sorted['side'] == 'sell'
+        ).cumsum()
+        
+        fig.add_trace(
+            go.Scatter(
+                x=trades_df_sorted['timestamp'],
+                y=trades_df_sorted['cum_buys'],
+                name='Cum. Buys',
+                line=dict(color='#00ff88')
+            ), row=4, col=1
+        )
+        
+        fig.add_trace(
+            go.Scatter(
+                x=trades_df_sorted['timestamp'],
+                y=trades_df_sorted['cum_sells'],
+                name='Cum. Sells',
+                line=dict(color='#ff6666')
+            ), row=4, col=1
+        )
+    
+    # ── 8. Monthly Returns ──
+    monthly = results['monthly_returns'] * 100
+    colors_m = ['#00ff88' if x >= 0 else '#ff4444' for x in monthly]
+    
+    fig.add_trace(
+        go.Bar(
+            x=[str(p) for p in monthly.index],
+            y=monthly.values,
+            name='Monthly',
+            marker_color=colors_m
+        ), row=4, col=2
+    )
+    
+    # ── Layout ──
+    fig.update_layout(
+        height=1400,
+        width=1200,
+        template='plotly_dark',
+        title=f'🤖 Market Making Backtest: {pair_name}',
+        showlegend=True,
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        )
+    )
+    
+    fig.show()
+
+
+# ── Plot all results ──
+plot_backtest_results(results_btc, "BTC-USDT")
+plot_backtest_results(results_eth, "ETH-USDT")
+plot_backtest_results(results_sol, "SOL-USDT")
+
+# ═══════════════════════════════════════════════════════
+# 📓 CELL 8: SAVE RESULTS
+# ═══════════════════════════════════════════════════════
+
+save_dir = Path("results/mm_backtest")
+save_dir.mkdir(parents=True, exist_ok=True)
+
+for name, result in [
+    ("BTC-USDT", results_btc), 
+    ("ETH-USDT", results_eth), 
+    ("SOL-USDT", results_sol)
+]:
+    # Save portfolio history
+    result['portfolio_df'].to_parquet(
+        save_dir / f"{name}_portfolio.parquet", index=False
+    )
+    
+    # Save trades
+    if len(result['trades_df']) > 0:
+        result['trades_df'].to_parquet(
+            save_dir / f"{name}_trades.parquet", index=False
+        )
+    
+    print(f"💾 Saved: {name}")
+
+print(f"\n✅ All results saved to: {save_dir}/")
+
+# ── Summary ──
+print(f"""
+╔══════════════════════════════════════════════════════╗
+║  ✅ BACKTEST COMPLETE!                                ║
+╠══════════════════════════════════════════════════════╣
+║                                                      ║
+║  ✅ Step 1: Setup              DONE                  ║
+║  ✅ Step 2: Data Collection    DONE (262K candles)    ║
+║  ✅ Step 3: Feature Eng.       DONE (40+ features)    ║
+║  ✅ Step 4: Backtest           DONE (3 pairs)         ║
+║  ✅ Step 5: Visualization      DONE                  ║
+║                                                      ║
+║  ⬜ Step 6: Parameter Optimization  ← NEXT           ║
+║                                                      ║
+╚══════════════════════════════════════════════════════╝
+""")
+
+# ═══════════════════════════════════════════════════════
+# 📓 CELL 1: SETUP + LOAD
+# ═══════════════════════════════════════════════════════
+
+import nest_asyncio
+nest_asyncio.apply()
+
+import pandas as pd
+import numpy as np
+import itertools
+import time
+from datetime import datetime
+from pathlib import Path
+from copy import deepcopy
+import warnings
+warnings.filterwarnings('ignore')
+
+# Load feature-engineered data
+data_dir = Path("data/candles")
+df_btc = pd.read_parquet(data_dir / "BTC-USDT_1m.parquet")
+df_eth = pd.read_parquet(data_dir / "ETH-USDT_1m.parquet")
+df_sol = pd.read_parquet(data_dir / "SOL-USDT_1m.parquet")
+
+# Re-add features (if not saved with features)
+# df_btc = add_mm_features(df_btc)  # uncomment if needed
+
+print(f"✅ BTC: {len(df_btc):,} candles")
+print(f"✅ ETH: {len(df_eth):,} candles")
+print(f"✅ SOL: {len(df_sol):,} candles")
+
+# ═══════════════════════════════════════════════════════
+# 📓 CELL 2: Check if features exist, if not add them
+# ═══════════════════════════════════════════════════════
+
+def check_and_add_features(df, name):
+    """Features තියෙනවද check කරන්න, නැත්නම් add කරන්න"""
+    
+    required = ['natr_14', 'volatility_60', 'bb_width_20', 
+                'rsi', 'volume_ratio', 'trend']
+    
+    missing = [col for col in required if col not in df.columns]
+    
+    if missing:
+        print(f"⚠️ {name}: Missing features → Adding them...")
+        df = add_mm_features(df)
+    else:
+        print(f"✅ {name}: All features present")
+    
+    return df
+
+df_btc = check_and_add_features(df_btc, "BTC")
+df_eth = check_and_add_features(df_eth, "ETH")
+df_sol = check_and_add_features(df_sol, "SOL")
+
+# ═══════════════════════════════════════════════════════
+# 📓 CELL 3: FAST BACKTESTER (Optimized for Speed)
+# Original backtester speed up කරලා
+# Optimization loops සඳහා faster version
+# ═══════════════════════════════════════════════════════
+
+class FastMMBacktester:
+    """
+    Speed-optimized Market Making Backtester
+    
+    Original backtester ට වඩා ~3-5x faster
+    ├── Less portfolio history recording
+    ├── Numpy vectorized where possible
+    ├── Minimal string operations
+    └── Only essential metrics calculated
+    """
+    
+    def __init__(self, config: dict):
+        self.config = config
+    
+    def run(self, df: pd.DataFrame, silent: bool = True) -> dict:
+        """Fast backtest - returns only metrics"""
+        
+        c = self.config
+        warmup = max(1500, c.get('warmup', 1500))
+        
+        # State
+        quote = c['initial_capital']
+        base = 0.0
+        total_fees = 0.0
+        total_buys = 0
+        total_sells = 0
+        
+        # Daily tracking
+        daily_values = {}
+        
+        # Pre-extract columns as numpy arrays (FAST!)
+        closes = df['close'].values
+        highs = df['high'].values
+        lows = df['low'].values
+        timestamps = df['timestamp'].values
+        
+        natr = df['natr_14'].values if 'natr_14' in df.columns else None
+        vol_ratio = df['volume_ratio'].values if 'volume_ratio' in df.columns else None
+        bb_width = df['bb_width_20'].values if 'bb_width_20' in df.columns else None
+        rsi_vals = df['rsi'].values if 'rsi' in df.columns else None
+        
+        max_portfolio = c['initial_capital']
+        min_portfolio = c['initial_capital']
+        
+        for i in range(warmup, len(df)):
+            mid = closes[i]
+            
+            if mid <= 0 or np.isnan(mid):
+                continue
+            
+            portfolio = quote + base * mid
+            base_pct = (base * mid) / portfolio if portfolio > 0 else 0
+            
+            # Track daily
+            day_key = str(timestamps[i])[:10]
+            daily_values[day_key] = portfolio
+            
+            # Track max/min for drawdown
+            if portfolio > max_portfolio:
+                max_portfolio = portfolio
+            if portfolio < min_portfolio:
+                min_portfolio = portfolio
+            
+            # ── Calculate Spread ──
+            if c['use_dynamic_spread'] and natr is not None:
+                n = natr[i]
+                if np.isnan(n) or n <= 0:
+                    n = 0.001
+                
+                spread = n * c['volatility_multiplier']
+                
+                # Volume adjustment
+                if vol_ratio is not None and not np.isnan(vol_ratio[i]):
+                    vr = vol_ratio[i]
+                    if vr > 2.0:
+                        spread *= 0.85
+                    elif vr < 0.5:
+                        spread *= 1.25
+                
+                # BB width
+                if bb_width is not None and not np.isnan(bb_width[i]):
+                    spread *= (0.5 + bb_width[i] * 10)
+                
+                spread = max(c['min_spread'], min(c['max_spread'], spread))
+            else:
+                spread = c['fixed_bid_spread']
+            
+            bid_spread = spread
+            ask_spread = spread
+            
+            # Inventory skew
+            if c['inventory_skew_enabled']:
+                imb = base_pct - c['target_base_pct']
+                skew = max(-0.8, min(0.8, imb * 3))
+                bid_spread *= (1 + skew)
+                ask_spread *= (1 - skew)
+                bid_spread = max(0.0005, bid_spread)
+                ask_spread = max(0.0005, ask_spread)
+            
+            # Trend adjustment
+            if c.get('use_trend_adjustment', False) and rsi_vals is not None:
+                rsi_val = rsi_vals[i]
+                if not np.isnan(rsi_val):
+                    if rsi_val > 70:
+                        ask_spread *= 1.2
+                    elif rsi_val < 30:
+                        bid_spread *= 1.2
+            
+            # ── Order Levels ──
+            order_amount = c['order_amount_usd'] / mid
+            
+            for level in range(c['order_levels']):
+                extra = level * c['order_level_spread']
+                
+                level_bid = mid * (1 - bid_spread - extra)
+                level_ask = mid * (1 + ask_spread + extra)
+                
+                # BID FILL
+                if lows[i] <= level_bid:
+                    cost = level_bid * order_amount
+                    fee = cost * c['maker_fee']
+                    
+                    if quote >= (cost + fee):
+                        new_base_val = (base + order_amount) * mid
+                        new_base_pct = new_base_val / (portfolio + cost) if portfolio > 0 else 0
+                        
+                        if new_base_pct <= c['max_inventory_pct']:
+                            base += order_amount
+                            quote -= (cost + fee)
+                            total_fees += fee
+                            total_buys += 1
+                
+                # ASK FILL
+                if highs[i] >= level_ask:
+                    if base >= order_amount:
+                        revenue = level_ask * order_amount
+                        fee = revenue * c['maker_fee']
+                        base -= order_amount
+                        quote += (revenue - fee)
+                        total_fees += fee
+                        total_sells += 1
+        
+        # ── Calculate Metrics ──
+        final_portfolio = quote + base * closes[-1]
+        total_pnl = final_portfolio - c['initial_capital']
+        total_return = total_pnl / c['initial_capital']
+        
+        # Daily returns
+        daily_vals = list(daily_values.values())
+        if len(daily_vals) > 1:
+            daily_rets = pd.Series(daily_vals).pct_change().dropna()
+            
+            daily_avg = daily_rets.mean()
+            daily_std = daily_rets.std()
+            
+            sharpe = (
+                daily_avg / daily_std * np.sqrt(365)
+            ) if daily_std > 0 else 0
+            
+            # Sortino
+            downside = daily_rets[daily_rets < 0]
+            sortino = (
+                daily_avg / downside.std() * np.sqrt(365)
+            ) if len(downside) > 0 and downside.std() > 0 else 0
+            
+            # Max Drawdown
+            cum_max = pd.Series(daily_vals).cummax()
+            drawdowns = (pd.Series(daily_vals) - cum_max) / cum_max
+            max_dd = drawdowns.min()
+            
+            # Win rate
+            pos_days = (daily_rets > 0).sum()
+            neg_days = (daily_rets < 0).sum()
+            win_rate = pos_days / (pos_days + neg_days) if (pos_days + neg_days) > 0 else 0
+            
+            total_days = len(daily_vals)
+        else:
+            daily_avg = 0
+            sharpe = 0
+            sortino = 0
+            max_dd = 0
+            win_rate = 0
+            total_days = 0
+        
+        total_trades = total_buys + total_sells
+        
+        result = {
+            'total_return': total_return,
+            'total_pnl': total_pnl,
+            'daily_avg_return': daily_avg,
+            'sharpe_ratio': sharpe,
+            'sortino_ratio': sortino,
+            'max_drawdown': max_dd,
+            'win_rate': win_rate,
+            'total_trades': total_trades,
+            'buy_trades': total_buys,
+            'sell_trades': total_sells,
+            'total_fees': total_fees,
+            'total_days': total_days,
+            'final_value': final_portfolio,
+        }
+        
+        if not silent:
+            print(
+                f"  Return: {total_return:+.2%} | "
+                f"Sharpe: {sharpe:.2f} | "
+                f"MaxDD: {max_dd:.2%} | "
+                f"Trades: {total_trades:,} | "
+                f"Win: {win_rate:.0%}"
+            )
+        
+        return result
+
+
+print("✅ FastMMBacktester ready!")
+
+# ═══════════════════════════════════════════════════════
+# 📓 CELL 4: GRID SEARCH OPTIMIZATION
+# Best parameter combination හොයන්න
+# ═══════════════════════════════════════════════════════
+
+def grid_search_optimization(
+    df: pd.DataFrame,
+    pair_name: str = "BTC-USDT",
+    max_combinations: int = None
+) -> pd.DataFrame:
+    """
+    Grid Search: All parameter combinations test කරන්න
+    
+    ╔═══════════════════════════════════════════╗
+    ║  PARAMETERS BEING OPTIMIZED:              ║
+    ├───────────────────────────────────────────┤
+    ║  1. volatility_multiplier  (spread size)  ║
+    ║  2. min_spread            (floor)         ║
+    ║  3. max_spread            (ceiling)       ║
+    ║  4. order_levels          (depth)         ║
+    ║  5. order_amount_usd      (size)          ║
+    ║  6. order_level_spread    (spacing)       ║
+    ║  7. inventory_skew        (on/off)        ║
+    ║  8. trend_adjustment      (on/off)        ║
+    ╚═══════════════════════════════════════════╝
+    """
+    
+    # ═══════════════════════════════
+    # PARAMETER GRID
+    # ═══════════════════════════════
+    
+    param_grid = {
+        'volatility_multiplier': [1.5, 2.0, 2.5, 3.0, 4.0],
+        'min_spread':            [0.001, 0.0015, 0.002, 0.003],
+        'max_spread':            [0.01, 0.015, 0.02, 0.03],
+        'order_levels':          [1, 2, 3, 5],
+        'order_amount_usd':      [50, 100, 150, 200],
+        'order_level_spread':    [0.001, 0.002, 0.003],
+        'inventory_skew_enabled': [True, False],
+        'use_trend_adjustment':   [True, False],
+    }
+    
+    # Fixed parameters (optimize නොකරන ඒවා)
+    base_config = {
+        'pair_name': pair_name,
+        'initial_capital': 10000,
+        'use_dynamic_spread': True,
+        'fixed_bid_spread': 0.004,
+        'fixed_ask_spread': 0.004,
+        'target_base_pct': 0.5,
+        'max_inventory_pct': 0.7,
+        'maker_fee': 0.0001,
+        'warmup': 1500,
+    }
+    
+    # Generate all combinations
+    keys = list(param_grid.keys())
+    values = list(param_grid.values())
+    all_combos = list(itertools.product(*values))
+    
+    total = len(all_combos)
+    
+    if max_combinations and total > max_combinations:
+        # Random sample if too many
+        np.random.seed(42)
+        indices = np.random.choice(
+            total, max_combinations, replace=False
+        )
+        all_combos = [all_combos[i] for i in indices]
+        total = len(all_combos)
+    
+    print(f"""
+╔══════════════════════════════════════════════════════╗
+║  🔧 GRID SEARCH OPTIMIZATION                        ║
+╠══════════════════════════════════════════════════════╣
+║  Pair:          {pair_name:<36} ║
+║  Combinations:  {total:>8,} to test                      ║
+║  Parameters:    {len(keys):>8}                              ║
+╠══════════════════════════════════════════════════════╣
+║  Grid:                                               ║""")
+    
+    for key, vals in param_grid.items():
+        vals_str = str(vals)[:40]
+        print(f"║  ├── {key:<25} {vals_str:<25}║")
+    
+    print(f"""╚══════════════════════════════════════════════════════╝
+    """)
+    
+    # ═══════════════════════════════
+    # RUN ALL COMBINATIONS
+    # ═══════════════════════════════
+    
+    results = []
+    start_time = time.time()
+    best_sharpe = -999
+    best_params = None
+    
+    for idx, combo in enumerate(all_combos):
+        # Build config
+        config = base_config.copy()
+        params = dict(zip(keys, combo))
+        config.update(params)
+        
+        # Validate: min_spread < max_spread
+        if config['min_spread'] >= config['max_spread']:
+            continue
+        
+        # Run backtest
+        try:
+            bt = FastMMBacktester(config)
+            result = bt.run(df, silent=True)
+            
+            # Store result + params
+            result.update(params)
+            results.append(result)
+            
+            # Track best
+            if result['sharpe_ratio'] > best_sharpe and result['total_trades'] > 100:
+                best_sharpe = result['sharpe_ratio']
+                best_params = params.copy()
+                best_result = result.copy()
+            
+        except Exception as e:
+            continue
+        
+        # Progress
+        if (idx + 1) % 50 == 0 or idx == 0:
+            elapsed = time.time() - start_time
+            speed = (idx + 1) / elapsed
+            remaining = (total - idx - 1) / speed if speed > 0 else 0
+            
+            print(
+                f"  🔄 [{idx+1:>5,}/{total:,}] "
+                f"{(idx+1)/total*100:5.1f}% | "
+                f"Speed: {speed:.1f}/s | "
+                f"ETA: {remaining/60:.1f}min | "
+                f"Best Sharpe: {best_sharpe:.2f}"
+            )
+    
+    total_time = time.time() - start_time
+    
+    # ═══════════════════════════════
+    # RESULTS ANALYSIS
+    # ═══════════════════════════════
+    
+    results_df = pd.DataFrame(results)
+    
+    # Filter: minimum trades
+    results_df = results_df[results_df['total_trades'] >= 100]
+    
+    # Sort by Sharpe Ratio
+    results_df = results_df.sort_values('sharpe_ratio', ascending=False)
+    results_df = results_df.reset_index(drop=True)
+    
+    print(f"""
+╔══════════════════════════════════════════════════════╗
+║  ✅ OPTIMIZATION COMPLETE                            ║
+╠══════════════════════════════════════════════════════╣
+║  Total Tested:    {len(results_df):>8,} valid combinations     ║
+║  Time Taken:      {total_time/60:>8.1f} minutes                ║
+║  Speed:           {len(results_df)/total_time:>8.1f} tests/second           ║
+╚══════════════════════════════════════════════════════╝
+    """)
+    
+    return results_df
+
+
+print("✅ Grid Search function ready!")
+
+# ═══════════════════════════════════════════════════════
+# 📓 CELL 5: RUN OPTIMIZATION - BTC
+# ═══════════════════════════════════════════════════════
+
+print("🚀 Starting BTC-USDT Optimization...")
+print("⏳ This may take 5-15 minutes...\n")
+
+opt_btc = grid_search_optimization(
+    df=df_btc,
+    pair_name="BTC-USDT",
+    max_combinations=500     # Limit to 500 for speed
+                              # Remove for full search
+)
+
+# ═══════════════════════════════════════════════════════
+# 📓 CELL 6: ANALYZE OPTIMIZATION RESULTS
+# ═══════════════════════════════════════════════════════
+
+def analyze_optimization(results_df: pd.DataFrame, pair_name: str):
+    """
+    Optimization results deep analysis
+    """
+    
+    print(f"""
+╔═══════════════════════════════════════════════════════════════╗
+║  🏆 OPTIMIZATION RESULTS: {pair_name:<34} ║
+╚═══════════════════════════════════════════════════════════════╝
+    """)
+    
+    # ═══════════════════════════════
+    # TOP 10 BY SHARPE RATIO
+    # ═══════════════════════════════
+    
+    top10 = results_df.head(10)
+    
+    display_cols = [
+        'volatility_multiplier', 'min_spread', 'max_spread',
+        'order_levels', 'order_amount_usd', 'order_level_spread',
+        'inventory_skew_enabled', 'use_trend_adjustment',
+        'total_return', 'sharpe_ratio', 'max_drawdown', 
+        'win_rate', 'total_trades'
+    ]
+    
+    print("🥇 TOP 10 Configurations (by Sharpe Ratio):")
+    print("=" * 130)
+    
+    for rank, (_, row) in enumerate(top10.iterrows(), 1):
+        medal = {1: '🥇', 2: '🥈', 3: '🥉'}.get(rank, f'#{rank}')
+        
+        print(f"""
+  {medal} Rank {rank}:
+  ├── Parameters:
+  │   ├── vol_mult: {row['volatility_multiplier']:<6} │ min_spread: {row['min_spread']:.4f} │ max_spread: {row['max_spread']:.3f}
+  │   ├── levels:   {row['order_levels']:<6} │ amount:     ${row['order_amount_usd']:<6.0f} │ level_spread: {row['order_level_spread']:.3f}
+  │   └── inv_skew: {str(row['inventory_skew_enabled']):<6} │ trend_adj:  {str(row['use_trend_adjustment']):<6}
+  └── Results:
+      ├── Return: {row['total_return']:>+8.2%}  │ Sharpe: {row['sharpe_ratio']:>6.2f}  │ Sortino: {row.get('sortino_ratio', 0):>6.2f}
+      ├── MaxDD:  {row['max_drawdown']:>+8.2%}  │ Win:    {row['win_rate']:>6.1%}  │ PF: {row.get('profit_factor', 0):>6.2f}
+      └── Trades: {row['total_trades']:>8,}  │ Fees:   ${row['total_fees']:>8,.2f}  │ Daily: {row['daily_avg_return']:>+.4%}""")
+    
+    # ═══════════════════════════════
+    # BEST PARAMETERS
+    # ═══════════════════════════════
+    
+    best = results_df.iloc[0]
+    
+    print(f"""
+
+╔══════════════════════════════════════════════════════╗
+║  🏆 BEST PARAMETERS FOUND: {pair_name:<23}  ║
+╠══════════════════════════════════════════════════════╣
+║                                                      ║
+║  📐 SPREAD SETTINGS:                                 ║
+║  ├── volatility_multiplier: {best['volatility_multiplier']:<24} ║
+║  ├── min_spread:            {best['min_spread']:<24} ║
+║  └── max_spread:            {best['max_spread']:<24} ║
+║                                                      ║
+║  📦 ORDER SETTINGS:                                  ║
+║  ├── order_levels:          {best['order_levels']:<24} ║
+║  ├── order_amount_usd:      ${best['order_amount_usd']:<23.0f} ║
+║  └── order_level_spread:    {best['order_level_spread']:<24} ║
+║                                                      ║
+║  🔧 FEATURES:                                        ║
+║  ├── inventory_skew:        {str(best['inventory_skew_enabled']):<24} ║
+║  └── trend_adjustment:      {str(best['use_trend_adjustment']):<24} ║
+║                                                      ║
+║  📊 EXPECTED PERFORMANCE:                            ║
+║  ├── Total Return:          {best['total_return']:>+10.2%}              ║
+║  ├── Daily Return:          {best['daily_avg_return']:>+10.4%}              ║
+║  ├── Sharpe Ratio:          {best['sharpe_ratio']:>10.2f}              ║
+║  ├── Max Drawdown:          {best['max_drawdown']:>+10.2%}              ║
+║  ├── Win Rate:              {best['win_rate']:>10.1%}              ║
+║  └── Total Trades:          {best['total_trades']:>10,}              ║
+╚══════════════════════════════════════════════════════╝
+    """)
+    
+    # ═══════════════════════════════
+    # PARAMETER IMPACT ANALYSIS
+    # ═══════════════════════════════
+    
+    print("\n📊 PARAMETER IMPACT ANALYSIS:")
+    print("=" * 80)
+    
+    param_cols = [
+        'volatility_multiplier', 'min_spread', 'max_spread',
+        'order_levels', 'order_amount_usd', 'order_level_spread',
+        'inventory_skew_enabled', 'use_trend_adjustment'
+    ]
+    
+    for param in param_cols:
+        grouped = results_df.groupby(param).agg({
+            'sharpe_ratio': 'mean',
+            'total_return': 'mean',
+            'max_drawdown': 'mean',
+            'win_rate': 'mean',
+            'total_trades': 'mean'
+        }).round(4)
+        
+        print(f"\n  📌 {param}:")
+        
+        for val, row in grouped.iterrows():
+            bar_len = int(max(0, row['sharpe_ratio']) * 10)
+            bar = '█' * min(bar_len, 25)
+            
+            print(
+                f"     {str(val):<8} │ "
+                f"Sharpe: {row['sharpe_ratio']:>6.2f} {bar} │ "
+                f"Return: {row['total_return']:>+7.2%} │ "
+                f"MaxDD: {row['max_drawdown']:>+7.2%} │ "
+                f"Win: {row['win_rate']:>5.1%}"
+            )
+    
+    # ═══════════════════════════════
+    # RISK vs RETURN CATEGORIES
+    # ═══════════════════════════════
+    
+    print(f"\n\n📊 STRATEGY CATEGORIES:")
+    print("=" * 80)
+    
+    # Conservative: High Sharpe, Low DD
+    conservative = results_df[
+        (results_df['max_drawdown'] > -0.05) & 
+        (results_df['sharpe_ratio'] > 0)
+    ].head(3)
+    
+    if len(conservative) > 0:
+        best_c = conservative.iloc[0]
+        print(f"""
+  🟢 CONSERVATIVE (Low Risk):
+     Return: {best_c['total_return']:>+.2%} | Sharpe: {best_c['sharpe_ratio']:.2f} | MaxDD: {best_c['max_drawdown']:.2%}
+     Params: vol_mult={best_c['volatility_multiplier']}, levels={best_c['order_levels']}, amount=${best_c['order_amount_usd']:.0f}
+        """)
+    
+    # Balanced: Good Sharpe + Good Return
+    balanced = results_df[
+        (results_df['sharpe_ratio'] > results_df['sharpe_ratio'].quantile(0.7)) &
+        (results_df['total_return'] > results_df['total_return'].quantile(0.5))
+    ].head(3)
+    
+    if len(balanced) > 0:
+        best_b = balanced.iloc[0]
+        print(f"""  🟡 BALANCED (Best Risk-Adjusted):
+     Return: {best_b['total_return']:>+.2%} | Sharpe: {best_b['sharpe_ratio']:.2f} | MaxDD: {best_b['max_drawdown']:.2%}
+     Params: vol_mult={best_b['volatility_multiplier']}, levels={best_b['order_levels']}, amount=${best_b['order_amount_usd']:.0f}
+        """)
+    
+    # Aggressive: Highest Return
+    aggressive = results_df.sort_values(
+        'total_return', ascending=False
+    ).head(3)
+    
+    if len(aggressive) > 0:
+        best_a = aggressive.iloc[0]
+        print(f"""  🔴 AGGRESSIVE (Max Return):
+     Return: {best_a['total_return']:>+.2%} | Sharpe: {best_a['sharpe_ratio']:.2f} | MaxDD: {best_a['max_drawdown']:.2%}
+     Params: vol_mult={best_a['volatility_multiplier']}, levels={best_a['order_levels']}, amount=${best_a['order_amount_usd']:.0f}
+        """)
+    
+    return {
+        'best': best.to_dict(),
+        'conservative': conservative,
+        'balanced': balanced,
+        'aggressive': aggressive,
+        'all_results': results_df
+    }
+
+
+# ═══════════════════
+# Run Analysis
+# ═══════════════════
+
+analysis_btc = analyze_optimization(opt_btc, "BTC-USDT")
+
+# ═══════════════════════════════════════════════════════
+# 📓 CELL 8: OPTIMIZATION VISUALIZATION
+# ═══════════════════════════════════════════════════════
+
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import plotly.express as px
+
+def plot_optimization_results(results_df: pd.DataFrame, pair_name: str):
+    """Optimization results visualization"""
+    
+    fig = make_subplots(
+        rows=3, cols=2,
+        subplot_titles=(
+            'Sharpe vs Return (All Configs)',
+            'Sharpe vs Max Drawdown',
+            'Impact: Volatility Multiplier',
+            'Impact: Order Levels',
+            'Impact: Order Amount',
+            'Return Distribution'
+        ),
+        vertical_spacing=0.1,
+        horizontal_spacing=0.08
+    )
+    
+    # ── 1. Sharpe vs Return Scatter ──
+    fig.add_trace(
+        go.Scatter(
+            x=results_df['total_return'] * 100,
+            y=results_df['sharpe_ratio'],
+            mode='markers',
+            marker=dict(
+                size=5,
+                color=results_df['max_drawdown'] * 100,
+                colorscale='RdYlGn',
+                showscale=True,
+                colorbar=dict(title='MaxDD %', x=0.45)
+            ),
+            text=[
+                f"Return: {r['total_return']:.2%}<br>"
+                f"Sharpe: {r['sharpe_ratio']:.2f}<br>"
+                f"MaxDD: {r['max_drawdown']:.2%}<br>"
+                f"Trades: {r['total_trades']:,}<br>"
+                f"vol_mult: {r['volatility_multiplier']}<br>"
+                f"levels: {r['order_levels']}"
+                for _, r in results_df.iterrows()
+            ],
+            hovertemplate='%{text}<extra></extra>',
+            name='Configurations'
+        ), row=1, col=1
+    )
+    
+    # Highlight top 5
+    top5 = results_df.head(5)
+    fig.add_trace(
+        go.Scatter(
+            x=top5['total_return'] * 100,
+            y=top5['sharpe_ratio'],
+            mode='markers',
+            marker=dict(
+                size=15, color='gold',
+                symbol='star', line=dict(width=2, color='black')
+            ),
+            name='Top 5'
+        ), row=1, col=1
+    )
+    
+    # ── 2. Sharpe vs MaxDD ──
+    fig.add_trace(
+        go.Scatter(
+            x=results_df['max_drawdown'] * 100,
+            y=results_df['sharpe_ratio'],
+            mode='markers',
+            marker=dict(
+                size=5, color='#00aaff', opacity=0.5
+            ),
+            name='All'
+        ), row=1, col=2
+    )
+    
+    # ── 3. Volatility Multiplier Impact ──
+    vol_impact = results_df.groupby('volatility_multiplier').agg({
+        'sharpe_ratio': ['mean', 'std'],
+        'total_return': 'mean'
+    }).reset_index()
+    vol_impact.columns = [
+        'vol_mult', 'sharpe_mean', 'sharpe_std', 'return_mean'
+    ]
+    
+    fig.add_trace(
+        go.Bar(
+            x=vol_impact['vol_mult'].astype(str),
+            y=vol_impact['sharpe_mean'],
+            error_y=dict(
+                type='data', array=vol_impact['sharpe_std']
+            ),
+            marker_color='#00ff88',
+            name='Avg Sharpe'
+        ), row=2, col=1
+    )
+    
+    # ── 4. Order Levels Impact ──
+    level_impact = results_df.groupby('order_levels').agg({
+        'sharpe_ratio': 'mean',
+        'total_return': 'mean',
+        'total_trades': 'mean'
+    }).reset_index()
+    
+    fig.add_trace(
+        go.Bar(
+            x=level_impact['order_levels'].astype(str),
+            y=level_impact['sharpe_ratio'],
+            marker_color='#ffaa00',
+            name='Sharpe by Levels'
+        ), row=2, col=2
+    )
+    
+    # ── 5. Order Amount Impact ──
+    amt_impact = results_df.groupby('order_amount_usd').agg({
+        'sharpe_ratio': 'mean',
+        'total_return': 'mean',
+        'max_drawdown': 'mean'
+    }).reset_index()
+    
+    fig.add_trace(
+        go.Bar(
+            x=amt_impact['order_amount_usd'].astype(str),
+            y=amt_impact['sharpe_ratio'],
+            marker_color='#ff66ff',
+            name='Sharpe by Amount'
+        ), row=3, col=1
+    )
+    
+    # ── 6. Return Distribution ──
+    fig.add_trace(
+        go.Histogram(
+            x=results_df['total_return'] * 100,
+            nbinsx=50,
+            marker_color='#00aaff',
+            opacity=0.7,
+            name='Return Dist'
+        ), row=3, col=2
+    )
+    
+    fig.update_layout(
+        height=1200,
+        width=1100,
+        template='plotly_dark',
+        title=f'🔧 Optimization Results: {pair_name}',
+        showlegend=False
+    )
+    
+    # Axis labels
+    fig.update_xaxes(title_text="Return %", row=1, col=1)
+    fig.update_yaxes(title_text="Sharpe Ratio", row=1, col=1)
+    fig.update_xaxes(title_text="Max Drawdown %", row=1, col=2)
+    fig.update_xaxes(title_text="Volatility Multiplier", row=2, col=1)
+    fig.update_xaxes(title_text="Order Levels", row=2, col=2)
+    fig.update_xaxes(title_text="Order Amount ($)", row=3, col=1)
+    fig.update_xaxes(title_text="Total Return %", row=3, col=2)
+    
+    fig.show()
+
+
+# Plot
+plot_optimization_results(opt_btc, "BTC-USDT")
+plot_optimization_results(opt_eth, "ETH-USDT")
+plot_optimization_results(opt_sol, "SOL-USDT")
+
+# ═══════════════════════════════════════════════════════
+# 📓 CELL 9: BEST CONFIG වලින් FULL BACKTEST
+# Optimized parameters → Full detailed backtest
+# ═══════════════════════════════════════════════════════
+
+def run_optimized_backtest(
+    df: pd.DataFrame,
+    best_params: dict,
+    pair_name: str
+) -> dict:
+    """Best parameters use කරලා full detailed backtest run කරන්න"""
+    
+    config = {
+        'pair_name': pair_name,
+        'initial_capital': 10000,
+        'use_dynamic_spread': True,
+        'fixed_bid_spread': 0.004,
+        'fixed_ask_spread': 0.004,
+        'target_base_pct': 0.5,
+        'max_inventory_pct': 0.7,
+        'maker_fee': 0.0001,
+        'warmup': 1500,
+    }
+    
+    # Apply optimized params
+    config.update(best_params)
+    
+    print(f"\n🏆 Running OPTIMIZED backtest: {pair_name}")
+    print(f"   Config: {best_params}")
+    
+    # Use FULL backtester (not fast) for detailed results
+    bt = MarketMakingBacktester(config)
+    results = bt.run(df)
+    
+    return results
+
+
+# ═══════════════════════════════
+# Get best params for each pair
+# ═══════════════════════════════
+
+best_btc_params = {
+    'volatility_multiplier': analysis_btc['best']['volatility_multiplier'],
+    'min_spread': analysis_btc['best']['min_spread'],
+    'max_spread': analysis_btc['best']['max_spread'],
+    'order_levels': int(analysis_btc['best']['order_levels']),
+    'order_amount_usd': analysis_btc['best']['order_amount_usd'],
+    'order_level_spread': analysis_btc['best']['order_level_spread'],
+    'inventory_skew_enabled': analysis_btc['best']['inventory_skew_enabled'],
+    'use_trend_adjustment': analysis_btc['best']['use_trend_adjustment'],
+}
+
+best_eth_params = {
+    'volatility_multiplier': analysis_eth['best']['volatility_multiplier'],
+    'min_spread': analysis_eth['best']['min_spread'],
+    'max_spread': analysis_eth['best']['max_spread'],
+    'order_levels': int(analysis_eth['best']['order_levels']),
+    'order_amount_usd': analysis_eth['best']['order_amount_usd'],
+    'order_level_spread': analysis_eth['best']['order_level_spread'],
+    'inventory_skew_enabled': analysis_eth['best']['inventory_skew_enabled'],
+    'use_trend_adjustment': analysis_eth['best']['use_trend_adjustment'],
+}
+
+best_sol_params = {
+    'volatility_multiplier': analysis_sol['best']['volatility_multiplier'],
+    'min_spread': analysis_sol['best']['min_spread'],
+    'max_spread': analysis_sol['best']['max_spread'],
+    'order_levels': int(analysis_sol['best']['order_levels']),
+    'order_amount_usd': analysis_sol['best']['order_amount_usd'],
+    'order_level_spread': analysis_sol['best']['order_level_spread'],
+    'inventory_skew_enabled': analysis_sol['best']['inventory_skew_enabled'],
+    'use_trend_adjustment': analysis_sol['best']['use_trend_adjustment'],
+}
+
+
+# Run optimized backtests
+opt_results_btc = run_optimized_backtest(df_btc, best_btc_params, "BTC-USDT")
+opt_results_eth = run_optimized_backtest(df_eth, best_eth_params, "ETH-USDT")
+opt_results_sol = run_optimized_backtest(df_sol, best_sol_params, "SOL-USDT")
+
+# ═══════════════════════════════════════════════════════
+# 📓 CELL 10: BEFORE vs AFTER COMPARISON
+# ═══════════════════════════════════════════════════════
+
+print(f"""
+╔══════════════════════════════════════════════════════════════════════════╗
+║  📊 OPTIMIZATION IMPROVEMENT: BEFORE vs AFTER                          ║
+╠══════════════════════════════════════════════════════════════════════════╣
+║                                                                        ║
+║  BTC-USDT:                                                             ║
+║  ├── Before: Return={results_btc['total_return']:>+7.2%} │ Sharpe={results_btc['sharpe_ratio']:>5.2f} │ MaxDD={results_btc['max_drawdown']:>+7.2%}  ║
+║  ├── After:  Return={opt_results_btc['total_return']:>+7.2%} │ Sharpe={opt_results_btc['sharpe_ratio']:>5.2f} │ MaxDD={opt_results_btc['max_drawdown']:>+7.2%}  ║
+║  └── Improvement: Sharpe {((opt_results_btc['sharpe_ratio']/max(results_btc['sharpe_ratio'],0.01))-1)*100:>+.0f}%                                        ║
+║                                                                        ║
+║  ETH-USDT:                                                             ║
+║  ├── Before: Return={results_eth['total_return']:>+7.2%} │ Sharpe={results_eth['sharpe_ratio']:>5.2f} │ MaxDD={results_eth['max_drawdown']:>+7.2%}  ║
+║  ├── After:  Return={opt_results_eth['total_return']:>+7.2%} │ Sharpe={opt_results_eth['sharpe_ratio']:>5.2f} │ MaxDD={opt_results_eth['max_drawdown']:>+7.2%}  ║
+║  └── Improvement: Sharpe {((opt_results_eth['sharpe_ratio']/max(results_eth['sharpe_ratio'],0.01))-1)*100:>+.0f}%                                        ║
+║                                                                        ║
+║  SOL-USDT:                                                             ║
+║  ├── Before: Return={results_sol['total_return']:>+7.2%} │ Sharpe={results_sol['sharpe_ratio']:>5.2f} │ MaxDD={results_sol['max_drawdown']:>+7.2%}  ║
+║  ├── After:  Return={opt_results_sol['total_return']:>+7.2%} │ Sharpe={opt_results_sol['sharpe_ratio']:>5.2f} │ MaxDD={opt_results_sol['max_drawdown']:>+7.2%}  ║
+║  └── Improvement: Sharpe {((opt_results_sol['sharpe_ratio']/max(results_sol['sharpe_ratio'],0.01))-1)*100:>+.0f}%                                        ║
+╚══════════════════════════════════════════════════════════════════════════╝
+""")
+
+# Visualize optimized results
+plot_backtest_results(opt_results_btc, "BTC-USDT (OPTIMIZED)")
+plot_backtest_results(opt_results_eth, "ETH-USDT (OPTIMIZED)")
+plot_backtest_results(opt_results_sol, "SOL-USDT (OPTIMIZED)")
+
+# ═══════════════════════════════════════════════════════
+# 📓 CELL 11: SAVE OPTIMIZED CONFIGURATION
+# ═══════════════════════════════════════════════════════
+
+import json
+
+# Final optimized configs
+final_configs = {
+    "BTC-USDT": {
+        "params": best_btc_params,
+        "performance": {
+            "total_return": opt_results_btc['total_return'],
+            "daily_return": opt_results_btc['daily_avg_return'],
+            "sharpe_ratio": opt_results_btc['sharpe_ratio'],
+            "max_drawdown": opt_results_btc['max_drawdown'],
+            "win_rate": opt_results_btc['win_rate'],
+            "total_trades": opt_results_btc['total_trades'],
+        }
+    },
+    "ETH-USDT": {
+        "params": best_eth_params,
+        "performance": {
+            "total_return": opt_results_eth['total_return'],
+            "daily_return": opt_results_eth['daily_avg_return'],
+            "sharpe_ratio": opt_results_eth['sharpe_ratio'],
+            "max_drawdown": opt_results_eth['max_drawdown'],
+            "win_rate": opt_results_eth['win_rate'],
+            "total_trades": opt_results_eth['total_trades'],
+        }
+    },
+    "SOL-USDT": {
+        "params": best_sol_params,
+        "performance": {
+            "total_return": opt_results_sol['total_return'],
+            "daily_return": opt_results_sol['daily_avg_return'],
+            "sharpe_ratio": opt_results_sol['sharpe_ratio'],
+            "max_drawdown": opt_results_sol['max_drawdown'],
+            "win_rate": opt_results_sol['win_rate'],
+            "total_trades": opt_results_sol['total_trades'],
+        }
+    }
+}
+
+# Convert numpy types for JSON
+def convert_types(obj):
+    if isinstance(obj, (np.integer,)):
+        return int(obj)
+    elif isinstance(obj, (np.floating,)):
+        return float(obj)
+    elif isinstance(obj, (np.bool_,)):
+        return bool(obj)
+    elif isinstance(obj, dict):
+        return {k: convert_types(v) for k, v in obj.items()}
+    return obj
+
+final_configs = convert_types(final_configs)
+
+# Save
+config_path = Path("results/optimized_configs.json")
+config_path.parent.mkdir(parents=True, exist_ok=True)
+
+with open(config_path, 'w') as f:
+    json.dump(final_configs, f, indent=2)
+
+print(f"💾 Saved optimized configs: {config_path}")
+
+# Save optimization results
+opt_btc.to_parquet("results/optimization_btc.parquet", index=False)
+opt_eth.to_parquet("results/optimization_eth.parquet", index=False)
+opt_sol.to_parquet("results/optimization_sol.parquet", index=False)
+
+print("💾 Saved full optimization results")
+
+# Display final config
+print(f"\n📋 FINAL OPTIMIZED CONFIGURATION:")
+print(json.dumps(final_configs, indent=2))
+
+print(f"""
+╔══════════════════════════════════════════════════════╗
+║  ✅ ALL STEPS COMPLETE!                              ║
+╠══════════════════════════════════════════════════════╣
+║                                                      ║
+║  ✅ Step 1: Setup               DONE                 ║
+║  ✅ Step 2: Data Collection     DONE (262K×3)        ║
+║  ✅ Step 3: Feature Engineering DONE (40+ features)  ║
+║  ✅ Step 4: Backtest            DONE (3 pairs)       ║
+║  ✅ Step 5: Visualization       DONE                 ║
+║  ✅ Step 6: Optimization        DONE                 ║
+║                                                      ║
+║  🎯 NEXT OPTIONS:                                    ║
+║  ├── A: Walk-Forward Validation (overfitting test)   ║
+║  ├── B: Paper Trading (Hummingbot)                   ║
+║  └── C: Live Deployment                              ║
+║                                                      ║
+╚══════════════════════════════════════════════════════╝
+""")
+
+# ═══════════════════════════════════════════════════════
+# 📓 CELL 1: SETUP
+# ═══════════════════════════════════════════════════════
+
+import nest_asyncio
+nest_asyncio.apply()
+
+import pandas as pd
+import numpy as np
+import itertools
+import time
+import json
+from datetime import datetime, timedelta
+from pathlib import Path
+from copy import deepcopy
+import warnings
+warnings.filterwarnings('ignore')
+
+# Load data
+data_dir = Path("data/candles")
+df_btc = pd.read_parquet(data_dir / "BTC-USDT_1m.parquet")
+df_eth = pd.read_parquet(data_dir / "ETH-USDT_1m.parquet")
+df_sol = pd.read_parquet(data_dir / "SOL-USDT_1m.parquet")
+
+# Add features (if not already)
+# df_btc = add_mm_features(df_btc)
+# df_eth = add_mm_features(df_eth)
+# df_sol = add_mm_features(df_sol)
+
+print(f"✅ BTC: {len(df_btc):,} | ETH: {len(df_eth):,} | SOL: {len(df_sol):,}")
+print(f"📅 Range: {df_btc['timestamp'].iloc[0]} → {df_btc['timestamp'].iloc[-1]}")
+
+# ═══════════════════════════════════════════════════════
+# 📓 CELL 2: WALK-FORWARD VALIDATION ENGINE
+# 
+# Overfitting detect කරන gold standard method එක
+#
+# Concept:
+# ════════════════════════════════════════════════════
+#
+#  Total Data: Jan ──────────────────────────── Jul
+#
+#  Fold 1: [TRAIN══════] [TEST═══]
+#  Fold 2:      [TRAIN══════] [TEST═══]
+#  Fold 3:           [TRAIN══════] [TEST═══]
+#  Fold 4:                [TRAIN══════] [TEST═══]
+#
+#  Each fold:
+#  ├── TRAIN: Optimize parameters
+#  └── TEST:  Test on UNSEEN data (out-of-sample)
+#
+#  If TEST results ≈ TRAIN results → NOT overfitting ✅
+#  If TEST results << TRAIN results → OVERFITTING ❌
+#
+# ════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════
+
+class WalkForwardValidator:
+    """
+    Walk-Forward Analysis for Market Making Strategy
+    
+    ╔══════════════════════════════════════════════╗
+    ║  WHY THIS IS CRITICAL:                       ║
+    ║                                              ║
+    ║  Without Walk-Forward:                       ║
+    ║  ├── Optimize on ALL data                    ║
+    ║  ├── Test on SAME data                       ║
+    ║  └── Result: FAKE high performance ❌        ║
+    ║                                              ║
+    ║  With Walk-Forward:                          ║
+    ║  ├── Optimize on PAST data only              ║
+    ║  ├── Test on FUTURE data (unseen)            ║
+    ║  └── Result: REALISTIC performance ✅        ║
+    ╚══════════════════════════════════════════════╝
+    """
+    
+    def __init__(
+        self,
+        n_folds: int = 5,
+        train_pct: float = 0.6,      # 60% train
+        test_pct: float = 0.2,       # 20% test
+        gap_pct: float = 0.02,       # 2% gap (prevent leakage)
+    ):
+        self.n_folds = n_folds
+        self.train_pct = train_pct
+        self.test_pct = test_pct
+        self.gap_pct = gap_pct
+    
+    def create_folds(self, df: pd.DataFrame) -> list:
+        """
+        Walk-forward folds generate කරන්න
+        
+        Returns list of (train_df, test_df) tuples
+        """
+        
+        total_len = len(df)
+        train_size = int(total_len * self.train_pct)
+        test_size = int(total_len * self.test_pct)
+        gap_size = int(total_len * self.gap_pct)
+        
+        # Step size for sliding window
+        remaining = total_len - train_size - gap_size - test_size
+        step = remaining // max(self.n_folds - 1, 1)
+        
+        folds = []
+        
+        for fold in range(self.n_folds):
+            train_start = fold * step
+            train_end = train_start + train_size
+            
+            test_start = train_end + gap_size
+            test_end = test_start + test_size
+            
+            if test_end > total_len:
+                break
+            
+            train_df = df.iloc[train_start:train_end].copy()
+            test_df = df.iloc[test_start:test_end].copy()
+            
+            folds.append({
+                'fold': fold + 1,
+                'train_df': train_df,
+                'test_df': test_df,
+                'train_start': str(train_df['timestamp'].iloc[0])[:10],
+                'train_end': str(train_df['timestamp'].iloc[-1])[:10],
+                'test_start': str(test_df['timestamp'].iloc[0])[:10],
+                'test_end': str(test_df['timestamp'].iloc[-1])[:10],
+                'train_size': len(train_df),
+                'test_size': len(test_df),
+            })
+        
+        # Print fold structure
+        print("\n📋 Walk-Forward Fold Structure:")
+        print("=" * 90)
+        
+        for f in folds:
+            print(
+                f"  Fold {f['fold']}: "
+                f"TRAIN [{f['train_start']} → {f['train_end']}] "
+                f"({f['train_size']:,}) │ "
+                f"TEST [{f['test_start']} → {f['test_end']}] "
+                f"({f['test_size']:,})"
+            )
+        
+        print("=" * 90)
+        
+        # Visual representation
+        print("\n  Visual Timeline:")
+        for f in folds:
+            total_bars = 60
+            t_start = int(
+                (f['fold'] - 1) * step / total_len * total_bars
+            )
+            t_len = int(train_size / total_len * total_bars)
+            g_len = int(gap_size / total_len * total_bars)
+            s_len = int(test_size / total_len * total_bars)
+            
+            bar = (
+                '·' * t_start + 
+                '█' * t_len + 
+                '░' * max(g_len, 1) + 
+                '▓' * s_len + 
+                '·' * (total_bars - t_start - t_len - g_len - s_len)
+            )
+            print(f"  Fold {f['fold']}: [{bar[:total_bars]}]")
+        
+        print(f"\n  Legend: █=TRAIN  ░=GAP  ▓=TEST  ·=unused")
+        
+        return folds
+    
+    def optimize_on_fold(
+        self, 
+        train_df: pd.DataFrame,
+        param_grid: dict,
+        max_combos: int = 200
+    ) -> dict:
+        """
+        Train fold එකේ best parameters හොයන්න
+        """
+        
+        base_config = {
+            'initial_capital': 10000,
+            'use_dynamic_spread': True,
+            'fixed_bid_spread': 0.004,
+            'fixed_ask_spread': 0.004,
+            'target_base_pct': 0.5,
+            'max_inventory_pct': 0.7,
+            'maker_fee': 0.0001,
+            'warmup': 1500,
+        }
+        
+        keys = list(param_grid.keys())
+        values = list(param_grid.values())
+        all_combos = list(itertools.product(*values))
+        
+        if len(all_combos) > max_combos:
+            np.random.seed(42)
+            indices = np.random.choice(
+                len(all_combos), max_combos, replace=False
+            )
+            all_combos = [all_combos[i] for i in indices]
+        
+        best_sharpe = -999
+        best_params = None
+        
+        for combo in all_combos:
+            config = base_config.copy()
+            params = dict(zip(keys, combo))
+            config.update(params)
+            
+            if config['min_spread'] >= config['max_spread']:
+                continue
+            
+            try:
+                bt = FastMMBacktester(config)
+                result = bt.run(train_df, silent=True)
+                
+                if (result['sharpe_ratio'] > best_sharpe and 
+                    result['total_trades'] >= 50):
+                    best_sharpe = result['sharpe_ratio']
+                    best_params = params.copy()
+                    best_result = result.copy()
+            except:
+                continue
+        
+        return best_params, best_sharpe
+    
+    def test_on_fold(
+        self, 
+        test_df: pd.DataFrame, 
+        params: dict
+    ) -> dict:
+        """
+        Optimized params → unseen test data මත test කරන්න
+        """
+        
+        config = {
+            'initial_capital': 10000,
+            'use_dynamic_spread': True,
+            'fixed_bid_spread': 0.004,
+            'fixed_ask_spread': 0.004,
+            'target_base_pct': 0.5,
+            'max_inventory_pct': 0.7,
+            'maker_fee': 0.0001,
+            'warmup': 1500,
+        }
+        config.update(params)
+        
+        bt = FastMMBacktester(config)
+        result = bt.run(test_df, silent=True)
+        
+        return result
+    
+    def run_walk_forward(
+        self,
+        df: pd.DataFrame,
+        pair_name: str = "BTC-USDT",
+        param_grid: dict = None,
+        max_combos_per_fold: int = 200
+    ) -> dict:
+        """
+        Complete Walk-Forward Validation
+        """
+        
+        if param_grid is None:
+            param_grid = {
+                'volatility_multiplier': [1.5, 2.0, 2.5, 3.0, 4.0],
+                'min_spread': [0.001, 0.0015, 0.002, 0.003],
+                'max_spread': [0.01, 0.015, 0.02, 0.03],
+                'order_levels': [1, 2, 3, 5],
+                'order_amount_usd': [50, 100, 150, 200],
+                'order_level_spread': [0.001, 0.002, 0.003],
+                'inventory_skew_enabled': [True, False],
+                'use_trend_adjustment': [True, False],
+            }
+        
+        print(f"""
+╔══════════════════════════════════════════════════════╗
+║  🔬 WALK-FORWARD VALIDATION                         ║
+║  Pair: {pair_name:<44} ║
+║  Folds: {self.n_folds:<43} ║
+║  Train/Test: {self.train_pct:.0%}/{self.test_pct:.0%}{'':<33} ║
+╚══════════════════════════════════════════════════════╝
+        """)
+        
+        # Create folds
+        folds = self.create_folds(df)
+        
+        fold_results = []
+        all_train_sharpes = []
+        all_test_sharpes = []
+        
+        for fold_info in folds:
+            fold_num = fold_info['fold']
+            train_df = fold_info['train_df']
+            test_df = fold_info['test_df']
+            
+            print(f"\n{'─' * 60}")
+            print(f"📊 Fold {fold_num}/{len(folds)}:")
+            print(f"   TRAIN: {fold_info['train_start']} → "
+                  f"{fold_info['train_end']} "
+                  f"({fold_info['train_size']:,} candles)")
+            print(f"   TEST:  {fold_info['test_start']} → "
+                  f"{fold_info['test_end']} "
+                  f"({fold_info['test_size']:,} candles)")
+            
+            # ── Step 1: Optimize on TRAIN data ──
+            print(f"   🔧 Optimizing on train data...")
+            start_t = time.time()
+            
+            best_params, train_sharpe = self.optimize_on_fold(
+                train_df, param_grid, max_combos_per_fold
+            )
+            
+            opt_time = time.time() - start_t
+            
+            if best_params is None:
+                print(f"   ❌ No valid params found!")
+                continue
+            
+            # Also get full train metrics
+            train_result = self.test_on_fold(train_df, best_params)
+            
+            print(f"   ✅ Train: Sharpe={train_result['sharpe_ratio']:.2f} | "
+                  f"Return={train_result['total_return']:+.2%} | "
+                  f"MaxDD={train_result['max_drawdown']:.2%} | "
+                  f"({opt_time:.0f}s)")
+            
+            # ── Step 2: Test on UNSEEN test data ──
+            print(f"   🧪 Testing on unseen data...")
+            
+            test_result = self.test_on_fold(test_df, best_params)
+            
+            print(f"   {'✅' if test_result['sharpe_ratio'] > 0 else '❌'} "
+                  f"Test:  Sharpe={test_result['sharpe_ratio']:.2f} | "
+                  f"Return={test_result['total_return']:+.2%} | "
+                  f"MaxDD={test_result['max_drawdown']:.2%}")
+            
+            # ── Degradation Check ──
+            if train_result['sharpe_ratio'] > 0:
+                degradation = (
+                    1 - test_result['sharpe_ratio'] / 
+                    train_result['sharpe_ratio']
+                ) * 100
+            else:
+                degradation = 100
+            
+            status = ""
+            if degradation < 20:
+                status = "🟢 EXCELLENT (minimal degradation)"
+            elif degradation < 40:
+                status = "🟡 ACCEPTABLE"
+            elif degradation < 60:
+                status = "🟠 CONCERNING"
+            else:
+                status = "🔴 OVERFITTING DETECTED"
+            
+            print(f"   📉 Degradation: {degradation:.1f}% → {status}")
+            
+            fold_results.append({
+                'fold': fold_num,
+                'train_start': fold_info['train_start'],
+                'train_end': fold_info['train_end'],
+                'test_start': fold_info['test_start'],
+                'test_end': fold_info['test_end'],
+                'best_params': best_params,
+                'train_sharpe': train_result['sharpe_ratio'],
+                'train_return': train_result['total_return'],
+                'train_maxdd': train_result['max_drawdown'],
+                'train_trades': train_result['total_trades'],
+                'test_sharpe': test_result['sharpe_ratio'],
+                'test_return': test_result['total_return'],
+                'test_maxdd': test_result['max_drawdown'],
+                'test_trades': test_result['total_trades'],
+                'test_win_rate': test_result['win_rate'],
+                'degradation': degradation,
+                'status': status,
+            })
+            
+            all_train_sharpes.append(train_result['sharpe_ratio'])
+            all_test_sharpes.append(test_result['sharpe_ratio'])
+        
+        # ═══════════════════════════════
+        # FINAL ANALYSIS
+        # ═══════════════════════════════
+        
+        results_summary = self._analyze_walk_forward(
+            fold_results, pair_name,
+            all_train_sharpes, all_test_sharpes
+        )
+        
+        return results_summary
+    
+    def _analyze_walk_forward(
+        self, fold_results, pair_name,
+        train_sharpes, test_sharpes
+    ):
+        """Final walk-forward analysis"""
+        
+        fr_df = pd.DataFrame(fold_results)
+        
+        avg_train_sharpe = np.mean(train_sharpes)
+        avg_test_sharpe = np.mean(test_sharpes)
+        avg_degradation = fr_df['degradation'].mean()
+        
+        avg_test_return = fr_df['test_return'].mean()
+        avg_test_maxdd = fr_df['test_maxdd'].mean()
+        avg_test_winrate = fr_df['test_win_rate'].mean()
+        
+        # Consistency: how many folds were profitable
+        profitable_folds = (fr_df['test_return'] > 0).sum()
+        positive_sharpe_folds = (fr_df['test_sharpe'] > 0).sum()
+        
+        # Overall verdict
+        if avg_degradation < 30 and positive_sharpe_folds == len(fr_df):
+            verdict = "🟢 STRATEGY IS ROBUST - Ready for paper trading!"
+            verdict_detail = "Minimal overfitting detected"
+        elif avg_degradation < 50 and positive_sharpe_folds >= len(fr_df) * 0.7:
+            verdict = "🟡 STRATEGY IS ACCEPTABLE - Proceed with caution"
+            verdict_detail = "Some overfitting, but strategy has edge"
+        elif avg_degradation < 70 and profitable_folds >= len(fr_df) * 0.5:
+            verdict = "🟠 STRATEGY NEEDS IMPROVEMENT"
+            verdict_detail = "Significant overfitting, reduce parameters"
+        else:
+            verdict = "🔴 STRATEGY IS OVERFITTED - Do NOT trade live!"
+            verdict_detail = "Results are not reliable"
+        
+        # Realistic expected performance
+        realistic_sharpe = avg_test_sharpe * 0.7  # 30% further haircut
+        realistic_daily = avg_test_return / fr_df['test_return'].count()
+        
+        print(f"""
+
+╔══════════════════════════════════════════════════════════════╗
+║  📊 WALK-FORWARD VALIDATION RESULTS: {pair_name:<21} ║
+╠══════════════════════════════════════════════════════════════╣
+║                                                              ║
+║  📈 IN-SAMPLE (Train) vs OUT-OF-SAMPLE (Test):              ║
+║  ┌──────────┬───────────┬────────────┬────────────────────┐  ║
+║  │          │  Train    │  Test      │  Degradation       │  ║
+║  ├──────────┼───────────┼────────────┼────────────────────┤  ║
+║  │  Sharpe  │  {avg_train_sharpe:>7.2f}  │  {avg_test_sharpe:>8.2f}  │  {avg_degradation:>6.1f}%             │  ║
+║  │  Return  │  {fr_df['train_return'].mean():>+7.2%}  │  {avg_test_return:>+8.2%}  │                    │  ║
+║  │  MaxDD   │  {fr_df['train_maxdd'].mean():>+7.2%}  │  {avg_test_maxdd:>+8.2%}  │                    │  ║
+║  └──────────┴───────────┴────────────┴────────────────────┘  ║
+║                                                              ║
+║  📋 FOLD-BY-FOLD:                                            ║""")
+        
+        for _, row in fr_df.iterrows():
+            print(
+                f"║  Fold {row['fold']}: "
+                f"Train Sharpe={row['train_sharpe']:>5.2f} → "
+                f"Test Sharpe={row['test_sharpe']:>5.2f} | "
+                f"Test Return={row['test_return']:>+7.2%} | "
+                f"{row['status']:<20}║"
+            )
+        
+        print(f"""║                                                              ║
+║  📊 CONSISTENCY:                                             ║
+║  ├── Profitable Folds:      {profitable_folds}/{len(fr_df)}{'':<27}║
+║  ├── Positive Sharpe Folds: {positive_sharpe_folds}/{len(fr_df)}{'':<27}║
+║  └── Avg Win Rate (OOS):    {avg_test_winrate:.1%}{'':<28}║
+║                                                              ║
+║  🎯 REALISTIC EXPECTATIONS (after all adjustments):          ║
+║  ├── Expected Sharpe:       {realistic_sharpe:>6.2f} (vs backtest {avg_train_sharpe:.2f}){'':<7}║
+║  ├── Expected Daily:        {realistic_daily:>+6.4%}{'':<26}║
+║  ├── Expected MaxDD:        {avg_test_maxdd:>+6.2%} or worse{'':<18}║
+║  └── Confidence:            {'HIGH' if avg_degradation < 30 else 'MEDIUM' if avg_degradation < 50 else 'LOW'}{'':<30}║
+║                                                              ║
+║  ╔════════════════════════════════════════════════════════╗   ║
+║  ║  VERDICT: {verdict:<46} ║   ║
+║  ║  Detail:  {verdict_detail:<46} ║   ║
+║  ╚════════════════════════════════════════════════════════╝   ║
+╚══════════════════════════════════════════════════════════════╝
+        """)
+        
+        return {
+            'pair_name': pair_name,
+            'fold_results': fr_df,
+            'avg_train_sharpe': avg_train_sharpe,
+            'avg_test_sharpe': avg_test_sharpe,
+            'avg_degradation': avg_degradation,
+            'avg_test_return': avg_test_return,
+            'avg_test_maxdd': avg_test_maxdd,
+            'realistic_sharpe': realistic_sharpe,
+            'profitable_folds': profitable_folds,
+            'total_folds': len(fr_df),
+            'verdict': verdict,
+            'robust_params': fr_df.iloc[
+                fr_df['test_sharpe'].idxmax()
+            ]['best_params'] if len(fr_df) > 0 else None,
+        }
+
+
+print("✅ WalkForwardValidator ready!")
+
+# ═══════════════════════════════════════════════════════
+# 📓 CELL 3: RUN WALK-FORWARD VALIDATION
+# ═══════════════════════════════════════════════════════
+
+# Smaller param grid for faster WF (still comprehensive)
+wf_param_grid = {
+    'volatility_multiplier': [1.5, 2.0, 2.5, 3.0, 4.0],
+    'min_spread': [0.001, 0.002, 0.003],
+    'max_spread': [0.01, 0.015, 0.02],
+    'order_levels': [1, 3, 5],
+    'order_amount_usd': [50, 100, 200],
+    'order_level_spread': [0.001, 0.002],
+    'inventory_skew_enabled': [True, False],
+    'use_trend_adjustment': [True, False],
+}
+
+# Create validator
+wf = WalkForwardValidator(
+    n_folds=5,          # 5 folds
+    train_pct=0.5,      # 50% train
+    test_pct=0.15,      # 15% test
+    gap_pct=0.02,       # 2% gap
+)
+
+print("🚀 Starting Walk-Forward Validation...")
+print("⏳ This will take 15-30 minutes for all 3 pairs")
+print()
+
+# ── BTC ──
+print("=" * 70)
+print("📊 BTC-USDT Walk-Forward Validation")
+print("=" * 70)
+
+wf_btc = wf.run_walk_forward(
+    df=df_btc,
+    pair_name="BTC-USDT",
+    param_grid=wf_param_grid,
+    max_combos_per_fold=200
+)
+
+# ═══════════════════════════════════════════════════════
+# 📓 CELL 4: ETH + SOL Walk-Forward
+# ═══════════════════════════════════════════════════════
+
+# ── ETH ──
+print("=" * 70)
+print("📊 ETH-USDT Walk-Forward Validation")
+print("=" * 70)
+
+wf_eth = wf.run_walk_forward(
+    df=df_eth,
+    pair_name="ETH-USDT",
+    param_grid=wf_param_grid,
+    max_combos_per_fold=200
+)
+
+# ── SOL ──
+print("\n" + "=" * 70)
+print("📊 SOL-USDT Walk-Forward Validation")
+print("=" * 70)
+
+wf_sol = wf.run_walk_forward(
+    df=df_sol,
+    pair_name="SOL-USDT",
+    param_grid=wf_param_grid,
+    max_combos_per_fold=200
+)
+
+# ═══════════════════════════════════════════════════════
+# 📓 CELL 5: REALISTIC PERFORMANCE + SLIPPAGE MODEL
+#
+# Backtest results → Real-world expected performance
+# ═══════════════════════════════════════════════════════
+
+class RealisticPerformanceEstimator:
+    """
+    Backtest results → Real-world expectations
+    
+    Adjustments:
+    ├── Slippage
+    ├── Partial fills
+    ├── Latency
+    ├── Order book depth
+    └── Market impact
+    """
+    
+    def __init__(self):
+        # Haircut factors
+        self.slippage_factor = 0.15       # 15% of profits lost to slippage
+        self.partial_fill_factor = 0.20   # 20% orders won't fill
+        self.latency_factor = 0.10        # 10% lost to latency
+        self.market_impact_factor = 0.05  # 5% market impact
+        self.unforeseen_factor = 0.10     # 10% buffer
+    
+    def estimate(self, backtest_results: dict, wf_results: dict) -> dict:
+        """
+        Combine backtest + walk-forward → realistic estimate
+        """
+        
+        pair = wf_results.get('pair_name', 'Unknown')
+        
+        # Use OUT-OF-SAMPLE (walk-forward test) results as base
+        # NOT the optimized backtest results!
+        base_sharpe = wf_results['avg_test_sharpe']
+        base_return = wf_results['avg_test_return']
+        base_maxdd = wf_results['avg_test_maxdd']
+        
+        # ── Apply Haircuts ──
+        total_haircut = (
+            self.slippage_factor +
+            self.partial_fill_factor +
+            self.latency_factor +
+            self.market_impact_factor +
+            self.unforeseen_factor
+        )
+        
+        survival_rate = 1 - total_haircut
+        
+        realistic_sharpe = base_sharpe * survival_rate
+        realistic_return = base_return * survival_rate
+        realistic_maxdd = base_maxdd * 1.5  # DD usually worse in live
+        
+        # Daily estimates
+        test_days = 30  # approximate days per test fold
+        realistic_daily = realistic_return / max(test_days, 1)
+        realistic_monthly = realistic_daily * 30
+        realistic_annual = (1 + realistic_daily) ** 365 - 1
+        
+        result = {
+            'pair': pair,
+            
+            # Raw backtest (optimistic)
+            'backtest_sharpe': backtest_results.get('sharpe_ratio', 0),
+            'backtest_return': backtest_results.get('total_return', 0),
+            'backtest_maxdd': backtest_results.get('max_drawdown', 0),
+            
+            # Walk-forward OOS (more realistic)
+            'wf_sharpe': base_sharpe,
+            'wf_return': base_return,
+            'wf_maxdd': base_maxdd,
+            
+            # Realistic (after all haircuts)
+            'realistic_sharpe': realistic_sharpe,
+            'realistic_daily': realistic_daily,
+            'realistic_monthly': realistic_monthly,
+            'realistic_annual': realistic_annual,
+            'realistic_maxdd': realistic_maxdd,
+            
+            # Haircuts applied
+            'total_haircut': total_haircut,
+            'survival_rate': survival_rate,
+        }
+        
+        return result
+    
+    def print_comparison(self, estimates: list):
+        """Print realistic vs backtest comparison"""
+        
+        print(f"""
+╔════════════════════════════════════════════════════════════════════════════╗
+║  📊 REALISTIC PERFORMANCE EXPECTATIONS                                   ║
+║  (After slippage, partial fills, latency, market impact adjustments)     ║
+╠════════════════════════════════════════════════════════════════════════════╣
+║                                                                          ║
+║  ⚠️ Haircuts Applied:                                                    ║
+║  ├── Slippage:        -{self.slippage_factor:.0%}                                              ║
+║  ├── Partial Fills:   -{self.partial_fill_factor:.0%}                                              ║
+║  ├── Latency:         -{self.latency_factor:.0%}                                              ║
+║  ├── Market Impact:   -{self.market_impact_factor:.0%}                                              ║
+║  ├── Unforeseen:      -{self.unforeseen_factor:.0%}                                              ║
+║  └── Total Haircut:   -{self.slippage_factor + self.partial_fill_factor + self.latency_factor + self.market_impact_factor + self.unforeseen_factor:.0%} (survival: {1-(self.slippage_factor + self.partial_fill_factor + self.latency_factor + self.market_impact_factor + self.unforeseen_factor):.0%})                                 ║
+║                                                                          ║""")
+        
+        print(f"║  {'Pair':<12} │ {'Level':<14} │ {'Sharpe':>8} │ {'Return':>10} │ {'MaxDD':>10} │ {'Daily':>10} ║")
+        print(f"║  {'─'*12}─┼─{'─'*14}─┼─{'─'*8}─┼─{'─'*10}─┼─{'─'*10}─┼─{'─'*10}─║")
+        
+        for est in estimates:
+            pair = est['pair']
+            
+            # Backtest (overly optimistic)
+            print(
+                f"║  {pair:<12} │ {'🔴 Backtest':<14} │ "
+                f"{est['backtest_sharpe']:>8.2f} │ "
+                f"{est['backtest_return']:>+10.2%} │ "
+                f"{est['backtest_maxdd']:>+10.2%} │ "
+                f"{'N/A':>10} ║"
+            )
+            
+            # Walk-Forward OOS
+            print(
+                f"║  {'':<12} │ {'🟡 WF (OOS)':<14} │ "
+                f"{est['wf_sharpe']:>8.2f} │ "
+                f"{est['wf_return']:>+10.2%} │ "
+                f"{est['wf_maxdd']:>+10.2%} │ "
+                f"{'N/A':>10} ║"
+            )
+            
+            # Realistic
+            print(
+                f"║  {'':<12} │ {'🟢 Realistic':<14} │ "
+                f"{est['realistic_sharpe']:>8.2f} │ "
+                f"{est['realistic_monthly']:>+10.2%} │ "
+                f"{est['realistic_maxdd']:>+10.2%} │ "
+                f"{est['realistic_daily']:>+10.4%} ║"
+            )
+            
+            print(f"║  {'─'*12}─┼─{'─'*14}─┼─{'─'*8}─┼─{'─'*10}─┼─{'─'*10}─┼─{'─'*10}─║")
+        
+        print(f"""║                                                                          ║
+║  💡 KEY TAKEAWAYS:                                                       ║
+║  ├── Backtest Sharpe 6-7 → Realistic Sharpe likely ~1-2                  ║
+║  ├── Backtest Return +117-377% → Realistic likely +15-60%/6mo            ║
+║  ├── MaxDD will be WORSE in live (2-3x backtest)                         ║
+║  ├── First 2-4 weeks: Paper trade to verify                              ║
+║  └── Start SMALL (max 5-10% of portfolio)                                ║
+╚════════════════════════════════════════════════════════════════════════════╝
+        """)
+
+
+# ══════════════
+# Run Estimates
+# ══════════════
+
+estimator = RealisticPerformanceEstimator()
+
+est_btc = estimator.estimate(
+    backtest_results={'sharpe_ratio': 6.04, 'total_return': 1.17, 'max_drawdown': -0.074},
+    wf_results=wf_btc
+)
+
+est_eth = estimator.estimate(
+    backtest_results={'sharpe_ratio': 5.86, 'total_return': 1.63, 'max_drawdown': -0.087},
+    wf_results=wf_eth
+)
+
+est_sol = estimator.estimate(
+    backtest_results={'sharpe_ratio': 6.99, 'total_return': 3.77, 'max_drawdown': -0.124},
+    wf_results=wf_sol
+)
+
+estimator.print_comparison([est_btc, est_eth, est_sol])
+
+# ═══════════════════════════════════════════════════════
+# 📓 CELL 6: WALK-FORWARD VISUALIZATION
+# ═══════════════════════════════════════════════════════
+
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+
+def plot_walk_forward(wf_results: dict, pair_name: str):
+    """Walk-Forward results visualization"""
+    
+    fr = wf_results['fold_results']
+    
+    fig = make_subplots(
+        rows=2, cols=2,
+        subplot_titles=(
+            'Train vs Test Sharpe Ratio (per fold)',
+            'Train vs Test Return (per fold)',
+            'Degradation % (per fold)',
+            'Performance Comparison'
+        ),
+        vertical_spacing=0.15,
+        horizontal_spacing=0.1
+    )
+    
+    folds = fr['fold'].values
+    
+    # ── 1. Sharpe: Train vs Test ──
+    fig.add_trace(
+        go.Bar(
+            x=[f"Fold {f}" for f in folds],
+            y=fr['train_sharpe'],
+            name='Train Sharpe',
+            marker_color='#00aaff',
+            opacity=0.7
+        ), row=1, col=1
+    )
+    
+    fig.add_trace(
+        go.Bar(
+            x=[f"Fold {f}" for f in folds],
+            y=fr['test_sharpe'],
+            name='Test Sharpe',
+            marker_color='#ff6600'
+        ), row=1, col=1
+    )
+    
+    # ── 2. Return: Train vs Test ──
+    fig.add_trace(
+        go.Bar(
+            x=[f"Fold {f}" for f in folds],
+            y=fr['train_return'] * 100,
+            name='Train Return %',
+            marker_color='#00ff88',
+            opacity=0.7
+        ), row=1, col=2
+    )
+    
+    fig.add_trace(
+        go.Bar(
+            x=[f"Fold {f}" for f in folds],
+            y=fr['test_return'] * 100,
+            name='Test Return %',
+            marker_color='#ffaa00'
+        ), row=1, col=2
+    )
+    
+    # ── 3. Degradation ──
+    colors = ['#00ff88' if d < 30 else '#ffaa00' if d < 50 
+              else '#ff4444' for d in fr['degradation']]
+    
+    fig.add_trace(
+        go.Bar(
+            x=[f"Fold {f}" for f in folds],
+            y=fr['degradation'],
+            name='Degradation %',
+            marker_color=colors
+        ), row=2, col=1
+    )
+    
+    # Threshold lines
+    fig.add_hline(y=30, line_dash="dash", line_color="green",
+                  annotation_text="Good (<30%)",
+                  row=2, col=1)
+    fig.add_hline(y=50, line_dash="dash", line_color="orange",
+                  annotation_text="Concern (>50%)",
+                  row=2, col=1)
+    
+    # ── 4. Summary Comparison ──
+    categories = ['Backtest\nSharpe', 'WF Train\nSharpe', 
+                  'WF Test\nSharpe', 'Realistic\nSharpe']
+    values = [
+        6.04 if 'BTC' in pair_name else 5.86 if 'ETH' in pair_name else 6.99,
+        wf_results['avg_train_sharpe'],
+        wf_results['avg_test_sharpe'],
+        wf_results['realistic_sharpe']
+    ]
+    
+    bar_colors = ['#ff4444', '#ffaa00', '#00aaff', '#00ff88']
+    
+    fig.add_trace(
+        go.Bar(
+            x=categories,
+            y=values,
+            marker_color=bar_colors,
+            name='Sharpe Progression',
+            text=[f"{v:.2f}" for v in values],
+            textposition='outside'
+        ), row=2, col=2
+    )
+    
+    fig.update_layout(
+        height=800,
+        width=1100,
+        template='plotly_dark',
+        title=f'🔬 Walk-Forward Validation: {pair_name}',
+        barmode='group',
+        showlegend=True
+    )
+    
+    fig.show()
+
+
+# Plot all
+plot_walk_forward(wf_btc, "BTC-USDT")
+plot_walk_forward(wf_eth, "ETH-USDT")
+plot_walk_forward(wf_sol, "SOL-USDT")
+
+# ═══════════════════════════════════════════════════════
+# 📓 CELL 7: FINAL COMPREHENSIVE SUMMARY
+# ═══════════════════════════════════════════════════════
+
+# Save walk-forward results
+wf_save_dir = Path("results/walk_forward")
+wf_save_dir.mkdir(parents=True, exist_ok=True)
+
+for name, wf_result in [
+    ("BTC-USDT", wf_btc), 
+    ("ETH-USDT", wf_eth), 
+    ("SOL-USDT", wf_sol)
+]:
+    wf_result['fold_results'].to_parquet(
+        wf_save_dir / f"{name}_wf_folds.parquet", index=False
+    )
+
+# Save realistic estimates
+realistic_summary = {
+    "generated_at": str(datetime.now()),
+    "BTC-USDT": {
+        "backtest_sharpe": 6.04,
+        "walkforward_oos_sharpe": wf_btc['avg_test_sharpe'],
+        "realistic_sharpe": est_btc['realistic_sharpe'],
+        "degradation": wf_btc['avg_degradation'],
+        "verdict": wf_btc['verdict'],
+        "realistic_daily_return": est_btc['realistic_daily'],
+        "realistic_monthly_return": est_btc['realistic_monthly'],
+        "realistic_max_drawdown": est_btc['realistic_maxdd'],
+        "robust_params": wf_btc.get('robust_params', {}),
+    },
+    "ETH-USDT": {
+        "backtest_sharpe": 5.86,
+        "walkforward_oos_sharpe": wf_eth['avg_test_sharpe'],
+        "realistic_sharpe": est_eth['realistic_sharpe'],
+        "degradation": wf_eth['avg_degradation'],
+        "verdict": wf_eth['verdict'],
+        "realistic_daily_return": est_eth['realistic_daily'],
+        "realistic_monthly_return": est_eth['realistic_monthly'],
+        "realistic_max_drawdown": est_eth['realistic_maxdd'],
+        "robust_params": wf_eth.get('robust_params', {}),
+    },
+    "SOL-USDT": {
+        "backtest_sharpe": 6.99,
+        "walkforward_oos_sharpe": wf_sol['avg_test_sharpe'],
+        "realistic_sharpe": est_sol['realistic_sharpe'],
+        "degradation": wf_sol['avg_degradation'],
+        "verdict": wf_sol['verdict'],
+        "realistic_daily_return": est_sol['realistic_daily'],
+        "realistic_monthly_return": est_sol['realistic_monthly'],
+        "realistic_max_drawdown": est_sol['realistic_maxdd'],
+        "robust_params": wf_sol.get('robust_params', {}),
+    }
+}
+
+# Convert for JSON
+def convert_types(obj):
+    if isinstance(obj, (np.integer,)):
+        return int(obj)
+    elif isinstance(obj, (np.floating,)):
+        return float(obj)
+    elif isinstance(obj, (np.bool_,)):
+        return bool(obj)
+    elif isinstance(obj, dict):
+        return {k: convert_types(v) for k, v in obj.items()}
+    return obj
+
+realistic_summary = convert_types(realistic_summary)
+
+with open(wf_save_dir / "realistic_expectations.json", 'w') as f:
+    json.dump(realistic_summary, f, indent=2, default=str)
+
+print(f"💾 Saved: {wf_save_dir}/")
+
+print(f"""
+╔══════════════════════════════════════════════════════════════╗
+║  🏁 COMPLETE PIPELINE SUMMARY                                ║
+╠══════════════════════════════════════════════════════════════╣
+║                                                              ║
+║  ✅ Step 1: Setup               DONE                         ║
+║  ✅ Step 2: Data Collection     DONE (262K × 3 pairs)        ║
+║  ✅ Step 3: Feature Engineering DONE (40+ indicators)        ║
+║  ✅ Step 4: Initial Backtest    DONE (3 pairs)               ║
+║  ✅ Step 5: Visualization       DONE                         ║
+║  ✅ Step 6: Optimization        DONE (500+ configs tested)   ║
+║  ✅ Step 7: Walk-Forward Valid. DONE (overfitting check)     ║
+║  ✅ Step 8: Realistic Estimates DONE                         ║
+║                                                              ║
+║  📊 SHARPE RATIO PROGRESSION:                                ║
+║  ┌──────────────────────────────────────────────────────┐    ║
+║  │ Backtest (overfit)    : ~6-7   ← ❌ Don't trust!     │    ║
+║  │ Walk-Forward (OOS)    : Check your results            │    ║
+║  │ Realistic (with costs): Expected ~40% of WF           │    ║
+║  │                                                       │    ║
+║  │ Good realistic Sharpe : 1.0-2.0 ← 🎯 Target this    │    ║
+║  └──────────────────────────────────────────────────────┘    ║
+║                                                              ║
+║  🎯 NEXT: Paper Trading with Hummingbot                      ║
+║     Use WALK-FORWARD best params (not optimization params!)  ║
+║                                                              ║
+╚══════════════════════════════════════════════════════════════╝
+""")# ═══════════════════════════════════════════════════════
+# 📓 CELL 7: FINAL COMPREHENSIVE SUMMARY
+# ═══════════════════════════════════════════════════════
+
+# Save walk-forward results
+wf_save_dir = Path("results/walk_forward")
+wf_save_dir.mkdir(parents=True, exist_ok=True)
+
+for name, wf_result in [
+    ("BTC-USDT", wf_btc), 
+    ("ETH-USDT", wf_eth), 
+    ("SOL-USDT", wf_sol)
+]:
+    wf_result['fold_results'].to_parquet(
+        wf_save_dir / f"{name}_wf_folds.parquet", index=False
+    )
+
+# Save realistic estimates
+realistic_summary = {
+    "generated_at": str(datetime.now()),
+    "BTC-USDT": {
+        "backtest_sharpe": 6.04,
+        "walkforward_oos_sharpe": wf_btc['avg_test_sharpe'],
+        "realistic_sharpe": est_btc['realistic_sharpe'],
+        "degradation": wf_btc['avg_degradation'],
+        "verdict": wf_btc['verdict'],
+        "realistic_daily_return": est_btc['realistic_daily'],
+        "realistic_monthly_return": est_btc['realistic_monthly'],
+        "realistic_max_drawdown": est_btc['realistic_maxdd'],
+        "robust_params": wf_btc.get('robust_params', {}),
+    },
+    "ETH-USDT": {
+        "backtest_sharpe": 5.86,
+        "walkforward_oos_sharpe": wf_eth['avg_test_sharpe'],
+        "realistic_sharpe": est_eth['realistic_sharpe'],
+        "degradation": wf_eth['avg_degradation'],
+        "verdict": wf_eth['verdict'],
+        "realistic_daily_return": est_eth['realistic_daily'],
+        "realistic_monthly_return": est_eth['realistic_monthly'],
+        "realistic_max_drawdown": est_eth['realistic_maxdd'],
+        "robust_params": wf_eth.get('robust_params', {}),
+    },
+    "SOL-USDT": {
+        "backtest_sharpe": 6.99,
+        "walkforward_oos_sharpe": wf_sol['avg_test_sharpe'],
+        "realistic_sharpe": est_sol['realistic_sharpe'],
+        "degradation": wf_sol['avg_degradation'],
+        "verdict": wf_sol['verdict'],
+        "realistic_daily_return": est_sol['realistic_daily'],
+        "realistic_monthly_return": est_sol['realistic_monthly'],
+        "realistic_max_drawdown": est_sol['realistic_maxdd'],
+        "robust_params": wf_sol.get('robust_params', {}),
+    }
+}
+
+# Convert for JSON
+def convert_types(obj):
+    if isinstance(obj, (np.integer,)):
+        return int(obj)
+    elif isinstance(obj, (np.floating,)):
+        return float(obj)
+    elif isinstance(obj, (np.bool_,)):
+        return bool(obj)
+    elif isinstance(obj, dict):
+        return {k: convert_types(v) for k, v in obj.items()}
+    return obj
+
+realistic_summary = convert_types(realistic_summary)
+
+with open(wf_save_dir / "realistic_expectations.json", 'w') as f:
+    json.dump(realistic_summary, f, indent=2, default=str)
+
+print(f"💾 Saved: {wf_save_dir}/")
+
+print(f"""
+╔══════════════════════════════════════════════════════════════╗
+║  🏁 COMPLETE PIPELINE SUMMARY                                ║
+╠══════════════════════════════════════════════════════════════╣
+║                                                              ║
+║  ✅ Step 1: Setup               DONE                         ║
+║  ✅ Step 2: Data Collection     DONE (262K × 3 pairs)        ║
+║  ✅ Step 3: Feature Engineering DONE (40+ indicators)        ║
+║  ✅ Step 4: Initial Backtest    DONE (3 pairs)               ║
+║  ✅ Step 5: Visualization       DONE                         ║
+║  ✅ Step 6: Optimization        DONE (500+ configs tested)   ║
+║  ✅ Step 7: Walk-Forward Valid. DONE (overfitting check)     ║
+║  ✅ Step 8: Realistic Estimates DONE                         ║
+║                                                              ║
+║  📊 SHARPE RATIO PROGRESSION:                                ║
+║  ┌──────────────────────────────────────────────────────┐    ║
+║  │ Backtest (overfit)    : ~6-7   ← ❌ Don't trust!     │    ║
+║  │ Walk-Forward (OOS)    : Check your results            │    ║
+║  │ Realistic (with costs): Expected ~40% of WF           │    ║
+║  │                                                       │    ║
+║  │ Good realistic Sharpe : 1.0-2.0 ← 🎯 Target this    │    ║
+║  └──────────────────────────────────────────────────────┘    ║
+║                                                              ║
+║  🎯 NEXT: Paper Trading with Hummingbot                      ║
+║     Use WALK-FORWARD best params (not optimization params!)  ║
+║                                                              ║
+╚══════════════════════════════════════════════════════════════╝
+""")
+
+# ═══════════════════════════════════════════════════════
+# 📓 CELL 1: Walk-Forward Results Load + Check
+# ═══════════════════════════════════════════════════════
+
+import json
+import pandas as pd
+from pathlib import Path
+
+# Load WF results
+wf_dir = Path("results/walk_forward")
+
+# Load realistic expectations
+with open(wf_dir / "realistic_expectations.json", 'r') as f:
+    realistic = json.load(f)
+
+print("📋 WALK-FORWARD RESULTS CHECK:")
+print("=" * 70)
+
+for pair in ["BTC-USDT", "ETH-USDT", "SOL-USDT"]:
+    r = realistic[pair]
+    print(f"""
+  {pair}:
+  ├── Backtest Sharpe:     {r['backtest_sharpe']:.2f} (overfit - ignore)
+  ├── WF OOS Sharpe:       {r['walkforward_oos_sharpe']:.2f} ← USE THIS
+  ├── Realistic Sharpe:    {r['realistic_sharpe']:.2f}
+  ├── Degradation:         {r['degradation']:.1f}%
+  ├── Verdict:             {r['verdict']}
+  ├── Realistic Daily:     {r['realistic_daily_return']:.4%}
+  ├── Realistic Monthly:   {r['realistic_monthly_return']:.2%}
+  └── Robust Params:       {r.get('robust_params', 'N/A')}
+    """)
+
+# ════════════════════════════════
+# Which params to use for paper trading?
+# Use WALK-FORWARD robust params, NOT optimization params!
+# ════════════════════════════════
+
+print("""
+╔══════════════════════════════════════════════════════╗
+║  ⚠️ IMPORTANT:                                       ║
+║                                                      ║
+║  Paper Trading සඳහා USE කරන්න:                      ║
+║  ✅ Walk-Forward robust_params                        ║
+║  ❌ Optimization best params (overfit!)               ║
+║                                                      ║
+║  Walk-Forward OOS Sharpe > 1.0 නම් → proceed ✅      ║
+║  Walk-Forward OOS Sharpe < 0.5 නම් → redesign ❌     ║
+╚══════════════════════════════════════════════════════╝
+""")
+
